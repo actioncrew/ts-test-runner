@@ -22,8 +22,7 @@
     "build:lib": "vite build --config vite.lib.config.ts",
     "build": "npm run clean && npm run build:cli && npm run build:lib",
     "start": "node --import tsx ./src/index.ts",
-    "copyfiles": "copyfiles README.md LICENSE ./dist/ts-test-runner",
-    "postinstall": "node postinstall.mjs"
+    "copyfiles": "copyfiles README.md LICENSE ./dist/ts-test-runner"
   },
   "repository": {
     "type": "git",
