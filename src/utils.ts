@@ -1,0 +1,1 @@
+export const norm = (p: string) => p.replace(/\\/g, '/');

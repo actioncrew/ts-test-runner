@@ -1,0 +1,15 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ES2022",
+    "declaration": false,
+    "outDir": "./dist/out-tsc",
+    "strict": true,
+    "esModuleInterop": true,
+    "moduleResolution": "bundler",
+    "sourceMap": false,
+    "types": ["node", "jasmine"]
+  },
+  "include": ["**/*.ts"],
+  "exclude": ["lib"]
+}
