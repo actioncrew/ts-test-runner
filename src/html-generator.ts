@@ -46,7 +46,7 @@ export class HtmlGenerator {
     const htmlContent = this.generateHtmlTemplate(imports, faviconTag);
     const htmlPath = norm(path.join(htmlDir, 'index.html'));
     fs.writeFileSync(htmlPath, htmlContent);
-    console.log('📄 Generated index.html for tests: ', norm(path.relative(this.config.outDir, htmlPath)));
+    console.log('📄 Generated index.html for tests:', norm(path.relative(this.config.outDir, htmlPath)));
   }
 
   private generateHtmlTemplate(imports: string, faviconTag: string): string {

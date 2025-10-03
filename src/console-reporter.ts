@@ -109,7 +109,7 @@ export class ConsoleReporter {
         this.print(this.colored('green', '✅ All specs passed!\n'));
       } else {
         this.print(
-          this.colored('green', '✅ All specs passed! ') +
+          this.colored('green', '✅ All specs passed!\n') +
           this.colored('yellow', `(with ${this.pendingSpecs.length} pending)\n`)
         );
       }
@@ -127,8 +127,7 @@ export class ConsoleReporter {
   }
 
   testsAborted(message?: string) {
-    this.print('\n\n'); // ensure newline
-    this.print(this.colored('red', `❌ Tests aborted${message ? ': ' + message : ''}\n`));
+    this.print(this.colored('red', `\n❌ Tests aborted${message ? ': ' + message : ''}\n`));
   }
 
   private colored(color: string, str: string): string {

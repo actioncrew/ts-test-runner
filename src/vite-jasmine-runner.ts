@@ -129,7 +129,7 @@ export class ViteJasmineRunner extends EventEmitter {
   }
 
   async start(): Promise<void> {
-    console.log(`🚀 Starting Vite + Jasmine Test ${this.config.headless ? 'Runner (Headless)' : 'Server'}...`);
+    console.log(`🚀 Starting Jasmine Test ${this.config.headless ? 'Runner (Headless)' : 'Server'}...`);
 
     // Ensure absolute paths
     this.config.outDir = norm(path.resolve(this.config.outDir));
@@ -211,12 +211,15 @@ export class ViteJasmineRunner extends EventEmitter {
 
   private async runHeadedBrowserMode(): Promise<void> {
     const server = await this.httpServerManager.startServer();
+    let testsCompleted = false;
     this.webSocketManager = new WebSocketManager(server, this.multiReporter);
     
     console.log('📡 WebSocket server ready for real-time test reporting');
     console.log('⏹️  Press Ctrl+C to stop the server');
     
     this.webSocketManager.on('testsCompleted', ({ coverage }) => {
+      testsCompleted = true;
+
       if (this.config.coverage) {
         if (!coverage) {
           console.warn('⚠️  No coverage information found. Make sure code is instrumented.');
@@ -227,6 +230,9 @@ export class ViteJasmineRunner extends EventEmitter {
     });
 
     const onBrowserClose = async () => {
+      if (!testsCompleted) {
+        console.warn('\n\n🔄 Browser window closed prematurely');
+      }
       await this.cleanup();
     };
     
@@ -234,6 +240,9 @@ export class ViteJasmineRunner extends EventEmitter {
 
     // Handle graceful shutdown
     process.on('SIGINT', async () => {
+      if (!testsCompleted) {
+        console.log('\n\n🛑 Tests aborted by user (Ctrl+C)');
+      }
       await this.cleanup();
       process.exit(0);
     });

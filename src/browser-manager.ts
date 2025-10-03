@@ -91,7 +91,7 @@ export class BrowserManager {
         await browser.close();
         return false;
       }
-      console.error('❌ Test execution failed:', error);
+      console.error(`❌ Test execution failed: ${error}`);
       await browser.close();
       throw error;
     } finally {
@@ -100,7 +100,7 @@ export class BrowserManager {
   }
 
   async openBrowser(port: number, onBrowserClose?: () => Promise<void>): Promise<void> {
-    const browserName = this.config.browser || 'chrome';
+    let browserName = this.config.browser || 'chrome';
     const url = `http://localhost:${port}/index.html`;
     
     try {
@@ -122,6 +122,7 @@ export class BrowserManager {
         default:
           console.warn(`⚠️  Unknown browser "${browserName}", using Chrome instead`);
           browserType = playwright.chromium;
+          browserName = 'chrome';
       }
       
       if (!browserType) {
@@ -143,7 +144,6 @@ export class BrowserManager {
       
       // Handle browser close event
       page.on('close', async () => {
-        console.log('🔄 Browser window closed');
         if (onBrowserClose) {
           await onBrowserClose();
         }

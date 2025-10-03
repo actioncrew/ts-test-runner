@@ -12,7 +12,7 @@ export class NodeTestRunner {
       const testRunnerPath = norm(path.join(this.config.outDir, 'test-runner.js'));
 
       if (!fs.existsSync(testRunnerPath)) {
-        console.error('❌ Test runner not found. Build may have failed.');
+        console.error('❌ Test runner not found. Build may have failed.\n');
         resolve(false);
         return;
       }
@@ -42,7 +42,7 @@ export class NodeTestRunner {
 
       child.on('error', (error) => {
         process.removeListener('SIGINT', sigintHandler);
-        console.error('❌ Failed to run headless tests:', error);
+        console.error(`❌ Failed to run headless tests: ${error}\n`);
         resolve(false);
       });
     });
