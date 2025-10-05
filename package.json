@@ -40,6 +40,7 @@
   },
   "homepage": "https://github.com/actioncrew/ts-test-runner#readme",
   "dependencies": {
+    "chokidar": "^4.0.3",
     "chromium-bidi": "^9.1.0",
     "esbuild": "^0.25.10",
     "fdir": "^6.5.0",
@@ -88,7 +89,7 @@
     "vite": "^7.1.7"
   },
   "bundleDependencies": [
-    "esbuild",
+    "chokidar",
     "istanbul-lib-instrument",
     "istanbul-lib-coverage",
     "istanbul-lib-report",
@@ -98,12 +99,9 @@
     "jasmine-core",
     "glob",
     "ws",
-    "rollup",
     "vite",
     "fdir",
-    "picomatch",
-    "playwright-core",
-    "playwright"
+    "picomatch"
   ],
   "prettier": {
     "singleQuote": true,
