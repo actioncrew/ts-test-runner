@@ -72,14 +72,14 @@ export class ViteJasmineRunner extends EventEmitter {
 
       // Add source files
       srcFiles.forEach(file => {
-        const relPath = path.relative(this.config.srcDir, file).replace(/\.ts$/, '');
+        const relPath = path.relative(this.config.srcDir, file).replace(/\.(ts|js|mjs)$/, '');
         const key = relPath.replace(/[\/\\]/g, '_');
         input[key] = file;
       });
 
       // Add test files
       testFiles.forEach(file => {
-        const relPath = path.relative(this.config.testDir, file).replace(/\.spec\.ts$/, '');
+        const relPath = path.relative(this.config.testDir, file).replace(/\.spec\.(ts|js|mjs)$/, '');
         const key = `${relPath.replace(/[\/\\]/g, '_')}.spec`;
         input[key] = file;
       });
