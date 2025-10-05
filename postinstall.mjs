@@ -1,4 +1,4 @@
-// postinstall.mjs
+#!/usr/bin/env node
 import { spawnSync } from "child_process";
 import fs from "fs";
 import os from "os";
