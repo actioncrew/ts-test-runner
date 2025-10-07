@@ -131,11 +131,18 @@ export class HtmlGenerator {
   <script src="/node_modules/jasmine-core/lib/jasmine-core/jasmine-html.js"></script>
   <script src="/node_modules/jasmine-core/lib/jasmine-core/boot0.js"></script>
   <script>
+    ${this.getWebSocketEventForwarderScript()}
     ${this.getHmrClientScript()}
     ${this.getRuntimeHelpersScript()}
+
+    // Add the WebSocket forwarder as a reporter
+    const forwarder = new WebSocketEventForwarder();
+    forwarder.connect();
+    jasmine.getEnv().addReporter(forwarder);
   </script>
 </head>
 <body>
+
   <div class="jasmine_html-reporter"></div>
   <script type="module">
     ${imports}
@@ -146,227 +153,182 @@ export class HtmlGenerator {
 
   private getWebSocketEventForwarderScript(): string {
     return `
-    function WebSocketEventForwarder() {
-      this.ws = null;
-      this.connected = false;
-      this.messageQueue = [];
-      
-      this.connect = function() {
-        try {
-          const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-          const wsUrl = protocol + '//' + window.location.host;
-          console.log('Connecting to WebSocket:', wsUrl);
-          
-          this.ws = new WebSocket(wsUrl);
-          
-          this.ws.onopen = () => {
-            console.log('WebSocket connected');
-            this.connected = true;
-            
-            // Send any queued messages
-            while (this.messageQueue.length > 0) {
-              const queuedMessage = this.messageQueue.shift();
-              this.send(queuedMessage);
-            }
-          };
-          
-          this.ws.onclose = () => {
-            console.log('WebSocket disconnected');
-            this.connected = false;
-          };
-          
-          this.ws.onerror = (error) => {
-            console.error('WebSocket error:', error);
-            this.connected = false;
-          };
+function WebSocketEventForwarder() {
+  this.ws = null;
+  this.connected = false;
+  this.messageQueue = [];
 
-          // Enable HMR message handling if in watch mode
-          if (window.HMRClient) {
-            this.ws.onmessage = (event) => {
-              try {
-                const message = JSON.parse(event.data);
-                if (message.type === 'hmr:update' || message.type === 'hmr:connected') {
-                  window.HMRClient.handleMessage(message);
-                }
-              } catch (error) {
-                console.error('Failed to handle WebSocket message:', error);
-              }
-            };
-          }
-        } catch (error) {
-          console.error('Failed to create WebSocket:', error);
+  const self = this;
+
+  // Establish WebSocket connection
+  this.connect = function() {
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = protocol + '//' + window.location.host;
+    
+    if (!window.HMRClient) {
+      // Wait a bit and retry if HMRClient is not ready
+      console.log('⚡ Waiting for HMRClient...');
+      setTimeout(() => self.connect(), 50);
+      return;
+    }
+
+    self.ws = new WebSocket(wsUrl);
+
+    self.ws.onopen = () => {
+      self.connected = true;
+      console.log('WebSocket connected to', wsUrl);
+
+      // Flush queued messages
+      while (self.messageQueue.length > 0) {
+        const msg = self.messageQueue.shift();
+        self.send(msg);
+      }
+    };
+
+    self.ws.onclose = () => {
+      self.connected = false;
+      console.log('WebSocket disconnected');
+      // Reconnect after a short delay
+      setTimeout(() => self.connect(), 1000);
+    };
+
+    self.ws.onerror = (err) => {
+      self.connected = false;
+      console.error('WebSocket error:', err);
+    };
+
+    self.ws.onmessage = async (event) => {
+      try {
+        const message = JSON.parse(event.data);
+
+        // Forward HMR messages to HMRClient
+        if (window.HMRClient && (message.type === 'hmr:connected' || message.type === 'hmr:update')) {
+          await window.HMRClient.handleMessage(message);
         }
-      };
-      
-      this.send = function(message) {
-        if (this.connected && this.ws && this.ws.readyState === WebSocket.OPEN) {
-          try {
-            this.ws.send(JSON.stringify(message));
-            console.log('Sent WebSocket message:', message.type);
-          } catch (error) {
-            console.error('Failed to send WebSocket message:', error);
-          }
-        } else {
-          // Queue message if not connected
-          console.log('Queuing message (not connected):', message.type);
-          this.messageQueue.push(message);
-        }
-      };
-      
-      this.jasmineStarted = function(suiteInfo) {
-        console.log('Jasmine started with', suiteInfo.totalSpecsDefined, 'specs');
-        this.connect();
-        
-        this.send({
-          type: 'start',
-          totalSpecs: suiteInfo.totalSpecsDefined,
-          order: suiteInfo.order,
-          timestamp: Date.now()
-        });
-      };
-      
-      this.specDone = function(result) {
-        this.send({
-          type: 'specDone',
-          id: result.id,
-          description: result.description,
-          fullName: result.fullName,
-          status: result.status,
-          passedExpectations: result.passedExpectations || [],
-          failedExpectations: result.failedExpectations || [],
-          pendingReason: result.pendingReason || null,
-          duration: result.duration || 0,
-          timestamp: Date.now()
-        });
-      };
-      
-      this.jasmineDone = function(result) {
-        console.log('Jasmine completed');
-        const coverage = globalThis.__coverage__;
-        this.send({
-          type: 'done',
-          totalTime: result.totalTime || 0,
-          overallStatus: result.overallStatus || 'complete',
-          incompleteReason: result.incompleteReason || null,
-          order: result.order || null,
-          timestamp: Date.now(),
-          coverage: (coverage ? JSON.stringify(coverage) : null) 
-        });
-        
-        // Set global flag for headless browser detection
-        window.jasmineFinished = true;
-        
-        // Don't close WebSocket in HMR mode
-        if (!window.HMRClient) {
-          setTimeout(() => {
-            if (this.ws) {
-              this.ws.close();
-            }
-          }, 1000);
-        }
-      };
-    }`;
+      } catch (err) {
+        console.error('Failed to handle WebSocket message:', err);
+      }
+    };
+  };
+
+  // Send message immediately or queue if not connected
+  this.send = function(msg) {
+    if (self.connected && self.ws && self.ws.readyState === WebSocket.OPEN) {
+      try {
+        self.ws.send(JSON.stringify(msg));
+      } catch (err) {
+        console.error('Failed to send WebSocket message:', err);
+      }
+    } else {
+      self.messageQueue.push(msg);
+    }
+  };
+
+  // Jasmine reporter hooks
+  this.jasmineStarted = function(suiteInfo) {
+    console.log('Jasmine started with', suiteInfo.totalSpecsDefined, 'specs');
+
+    self.send({
+      type: 'start',
+      totalSpecs: suiteInfo.totalSpecsDefined,
+      order: suiteInfo.order,
+      timestamp: Date.now()
+    });
+  };
+
+  this.specDone = function(result) {
+    self.send({
+      type: 'specDone',
+      id: result.id,
+      description: result.description,
+      fullName: result.fullName,
+      status: result.status,
+      passedExpectations: result.passedExpectations || [],
+      failedExpectations: result.failedExpectations || [],
+      pendingReason: result.pendingReason || null,
+      duration: result.duration || 0,
+      timestamp: Date.now()
+    });
+  };
+
+  this.jasmineDone = function(result) {
+    console.log('Jasmine completed');
+    const coverage = globalThis.__coverage__;
+
+    self.send({
+      type: 'done',
+      totalTime: result.totalTime || 0,
+      overallStatus: result.overallStatus || 'complete',
+      incompleteReason: result.incompleteReason || null,
+      order: result.order || null,
+      timestamp: Date.now(),
+      coverage: coverage ? JSON.stringify(coverage) : null
+    });
+
+    window.jasmineFinished = true;
+
+    // Only close WebSocket if HMR is not present
+    if (!window.HMRClient) {
+      setTimeout(() => {
+        if (self.ws) self.ws.close();
+      }, 1000);
+    }
+  };
+}
+  `;
   }
 
   private getHmrClientScript(): string {
     return `
-    // HMR Client Runtime
-    window.HMRClient = (function() {
-      const moduleRegistry = new Map();
-      let isUpdating = false;
+// HMR Client Runtime
+window.HMRClient = (function() {
+  const moduleRegistry = new Map();
 
-      async function handleMessage(message) {
-        if (message.type === 'hmr:connected') {
-          console.log('🔥 HMR enabled on server');
-          return;
-        }
+  async function handleMessage(message) {
+    if (message.type === 'hmr:connected') {
+      console.log('🔥 HMR enabled on server');
+      return;
+    }
 
-        if (message.type === 'hmr:update') {
-          await handleHmrUpdate(message.data);
-        }
+    if (message.type === 'hmr:update') {
+      const update = message.data;
+      if (!update) return;
+
+      if (update.type === 'full-reload') {
+        console.log('🔄 Full reload required');
+        location.reload();
+        return;
       }
 
-      async function handleHmrUpdate(update) {
-        if (update.type === 'full-reload') {
-          console.log('🔄 Full reload required');
-          location.reload();
-          return;
+      console.log('🔥 Hot updating:', update.path);
+
+      try {
+        // Create blob URL for the new module
+        const blob = new Blob([update.content], { type: 'application/javascript' });
+        const url = URL.createObjectURL(blob);
+
+        // Import the new module with cache busting
+        const newModule = await import(url + '?t=' + update.timestamp);
+        moduleRegistry.set(update.path, newModule);
+
+        // Attach file path to Jasmine suites immediately
+        if (window.runner && typeof window.runner.attachFilePathToSuites === 'function') {
+          window.runner.attachFilePathToSuites(update.path, newModule);
         }
 
-        console.log('🔥 Hot updating:', update.path);
+        URL.revokeObjectURL(url);
+        console.log('✅ HMR update applied for:', update.path);
 
-        try {
-          // Create blob URL for the new module
-          const blob = new Blob([update.content], { type: 'application/javascript' });
-          const url = URL.createObjectURL(blob);
-          
-          // Import the new module with cache busting
-          const newModule = await import(url + '?t=' + update.timestamp);
-          
-          // Store in registry
-          moduleRegistry.set(update.path, newModule);
-          
-          // Revoke the blob URL
-          URL.revokeObjectURL(url);
-
-          // Re-run tests
-          console.log('🧪 Re-running tests...');
-          await rerunTests();
-          
-        } catch (error) {
-          console.error('❌ HMR update failed:', error);
-          
-          // Send error back to server
-          const wsForwarder = jasmine.getEnv().reporters_[0];
-          if (wsForwarder && wsForwarder.ws) {
-            wsForwarder.ws.send(JSON.stringify({ 
-              type: 'hmr:error', 
-              error: error.message 
-            }));
-          }
-          
-          console.log('🔄 Falling back to full reload');
-          location.reload();
-        }
+      } catch (error) {
+        console.error('❌ HMR update failed:', error);
+        location.reload();
       }
+    }
+  }
 
-      async function rerunTests() {
-        if (isUpdating) return;
-        isUpdating = true;
-
-        try {
-          // Get Jasmine environment
-          const jasmineEnv = jasmine.getEnv();
-          
-          // Store current reporters
-          const reporters = jasmineEnv.reporters_;
-          
-          // Clear reporters temporarily
-          jasmineEnv.clearReporters();
-          
-          // Clear previous results from DOM
-          const reporterContainer = document.querySelector('.jasmine_html-reporter');
-          if (reporterContainer) {
-            reporterContainer.innerHTML = '';
-          }
-          
-          // Re-add reporters
-          reporters.forEach(reporter => jasmineEnv.addReporter(reporter));
-          
-          // Re-execute tests
-          await jasmineEnv.execute();
-          
-        } catch (error) {
-          console.error('❌ Failed to re-run tests:', error);
-        } finally {
-          isUpdating = false;
-        }
-      }
-
-      return {
-        handleMessage: handleMessage
-      };
-    })();`;
+  return { handleMessage };
+})();
+  `;
   }
 
   private getRuntimeHelpersScript(): string {
@@ -553,6 +515,24 @@ export class HtmlGenerator {
       });
     }
 
+    // Attach file path to suites/specs for HMR
+    function attachFilePathToSuites(filePath, moduleExports) {
+      const suites = getAllSuites();
+      
+      suites.forEach(suite => {
+        if (!suite._filePath && moduleExports && moduleExports.__specFile === filePath) {
+          suite._filePath = filePath;
+        }
+        // Also attach to child specs
+        (suite.children || []).forEach(child => {
+          if (isSpec(child) && !child._filePath) {
+            child._filePath = filePath;
+          }
+        });
+      });
+      console.log('📌 Attached file path to suites/specs for HMR:', filePath);
+    }
+
     async function runTests(filters) {
       const allSpecs = getAllSpecs();
       const filterArr = Array.isArray(filters) ? filters : [filters];
@@ -659,7 +639,8 @@ export class HtmlGenerator {
       clearResults,
       getAllSpecs,
       getAllSuites,
-      resetEnvironment
+      resetEnvironment,
+      attachFilePathToSuites
     };
 
     console.log('%c✅ Jasmine 5 runner loaded with reusable reporter!', 'color: green; font-weight: bold;');
