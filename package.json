@@ -73,6 +73,7 @@
     "@types/istanbul-reports": "^3.0.4",
     "@types/jasmine": "^5.1.9",
     "@types/node": "^24.5.2",
+    "@types/picomatch": "^4.0.2",
     "@types/ws": "^8.18.1",
     "copyfiles": "^2.4.1",
     "esbuild": "^0.25.10",

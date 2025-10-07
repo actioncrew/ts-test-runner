@@ -16,7 +16,7 @@ const EXTERNALS = [
   'vite', 'rollup', 'module-alias', 'playwright', 'playwright-core', 'esbuild', 
   'fdir', 'picomatch', 'jasmine-core', 'tinyglobby', 'path-scurry', 'lru-cache',
   'istanbul-lib-instrument', 'istanbul-lib-report', 'istanbul-lib-source-maps',
-  'istanbul-reports', 'istanbul-api', 'istanbul-lib-coverage'
+  'istanbul-reports', 'istanbul-api', 'istanbul-lib-coverage', 'chokidar'
 ];
 
 export default defineConfig({
@@ -25,6 +25,7 @@ export default defineConfig({
       targets: [
         { src: 'postinstall.mjs', dest: 'dist/ts-test-runner/' },
         { src: 'assets/favicon.ico', dest: 'dist/ts-test-runner/assets/' },
+        { src: 'node_modules/chokidar/**/*', dest: 'dist/ts-test-runner/node_modules/' },
         { src: 'node_modules/istanbul-lib-instrument/**/*', dest: 'dist/ts-test-runner/node_modules/' },
         { src: 'node_modules/istanbul-lib-coverage/**/*', dest: 'dist/ts-test-runner/node_modules/' },
         { src: 'node_modules/istanbul-lib-report/**/*', dest: 'dist/ts-test-runner/node_modules/' },

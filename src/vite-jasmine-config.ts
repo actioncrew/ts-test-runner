@@ -9,6 +9,7 @@ export interface ViteJasmineConfig {
   browser?: string;
   coverage?: boolean;
   headless?: boolean;
+  watch?: boolean; 
   viteConfig?: InlineConfig;
   viteBuildOptions?: {
     target?: string;

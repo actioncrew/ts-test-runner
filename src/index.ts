@@ -14,6 +14,7 @@ export { NodeTestRunnerGenerator } from './node-test-runner-generator';
 export { NodeTestRunner } from './node-test-runner';
 export { WebSocketManager } from './websocket-manager';
 export { IstanbulInstrumenter } from './istanbul-instrumenter'
+export { HmrManager } from './hmr-manager';
 export { norm } from './utils';
 export { ViteConfigBuilder } from './vite-config-builder';
 export type { ViteJasmineConfig } from './vite-jasmine-config';

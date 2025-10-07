@@ -10,31 +10,54 @@ export class CLIHandler {
   static async run(): Promise<void> {
     const args = process.argv.slice(2);
     const initOnly = args.includes('init');
+    const watch = args.includes('--watch');
     const headless = args.includes('--headless');
     const coverage = args.includes('--coverage');
     const browserIndex = args.findIndex(a => a === '--browser');
+    const hasBrowserArg = browserIndex !== -1;
     let browserName: string = 'chrome';
     
-    if (browserIndex !== -1 && browserIndex + 1 < args.length) {
+    if (hasBrowserArg && browserIndex + 1 < args.length) {
       browserName = args[browserIndex + 1];
     }
 
+    // Handle init
     if (initOnly) {
       ConfigManager.initViteJasmineConfig();
       return;
     }
 
+    // Enforce exclusivity of --watch
+    if (watch) {
+      const invalidFlags: string[] = [];
+      if (headless) invalidFlags.push('--headless');
+      if (coverage) invalidFlags.push('--coverage');
+      if (hasBrowserArg) invalidFlags.push('--browser');
+
+      if (invalidFlags.length > 0) {
+        console.error(`❌ The --watch flag cannot be used with: ${invalidFlags.join(', ')}`);
+        process.exit(1);
+      }
+    }
+
     try {
       let config = ConfigManager.loadViteJasmineBrowserConfig('ts-test-runner.json');
-      config = { 
+      config = {
         ...config,
         headless: headless ? true : config.headless,
         coverage: coverage ? true : config.coverage,
-        browser: browserIndex !== -1 && browserIndex + 1 < args.length ? browserName : config.browser
+        browser: hasBrowserArg ? browserName : config.browser,
+        watch
       };
-      
+
       const runner = createViteJasmineRunner(config);
-      await runner.start();
+
+      if (watch) {
+        console.log('👀 Watch mode enabled — running in continuous mode...');
+        await runner.watch();
+      } else {
+        await runner.start();
+      }
     } catch (error) {
       console.error('❌ Failed to start test runner:', error);
       process.exit(1);
