@@ -52,7 +52,7 @@ export class ConfigManager {
         reporter: 'console'
       },
       htmlOptions: {
-        title: 'Vite + Jasmine Tests',
+        title: 'Jasmine Tests Runner',
         includeSourceScripts: true,
         includeSpecScripts: true
       }

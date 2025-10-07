@@ -171,7 +171,7 @@ export class ViteJasmineRunner extends EventEmitter {
     }
 
     this.config.watch = true;
-    console.log('👀 Starting ViteJasmine in Watch Mode...');
+    console.log('👀 Starting Jasmine Tests Runner in Watch Mode...');
     await this.preprocess();
     await this.runWatchMode();
   }
