@@ -78,7 +78,7 @@ export class WebSocketManager extends EventEmitter {
         case 'done':
           this.reporter?.jasmineDone({
             totalTime: message.totalTime || 0,
-            overallStatus: message.overallStatus || 'complete',
+            overallStatus: message.overallStatus || 'passed',
             incompleteReason: message.incompleteReason || null,
             order: message.order || null
           });
@@ -140,11 +140,21 @@ export class WebSocketManager extends EventEmitter {
       await this.hmrManager.stop();
       this.hmrManager = null;
     }
-    
+
+    if (this.wsClients.length > 0) {
+      for (const client of this.wsClients) {
+        try {
+          if (client.readyState === WebSocket.OPEN) client.close();
+        } catch (err) {
+          console.error('❌ Error closing WebSocket client:', err);
+        }
+      }
+      this.wsClients = [];
+    }
+
     if (this.wss) {
       await new Promise<void>(resolve => this.wss!.close(() => resolve()));
       this.wss = null;
     }
-    this.wsClients = [];
   }
 }

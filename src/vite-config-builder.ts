@@ -30,7 +30,8 @@ export class ViteConfigBuilder {
 
   /** Full library build, preserves modules for proper relative imports */
   createViteConfig(srcFiles: string[], testFiles: string[]): InlineConfig {
-    const input = this.buildInputMap(srcFiles, testFiles);
+    const input = this.buildInputMap(srcFiles, testFiles); // keys already flattened
+
     return {
       ...this.config.viteConfig,
       root: process.cwd(),
@@ -42,10 +43,9 @@ export class ViteConfigBuilder {
           input,
           output: {
             format: 'es',
-            entryFileNames: '[name].js',
-            chunkFileNames: 'chunks/[name]-[hash].js',
-            preserveModules: true,
-            preserveModulesRoot: this.config.srcDir,
+            entryFileNames: '[name].js', // flattened
+            chunkFileNames: '[name]-[hash].js',
+            preserveModules: false,      // important: flatten everything
           },
           preserveEntrySignatures: 'strict',
         },
@@ -63,17 +63,23 @@ export class ViteConfigBuilder {
 
   /** Incremental or partial rebuild, flattens output file names */
   createViteConfigForFiles(changedFiles: string[], viteCache: any): InlineConfig {
-    let srcFiles: string[] = [], testFiles: string[] = [];
-  
-    changedFiles.forEach((file) => {
-      if (file.startsWith(this.config.srcDir)) {
-        srcFiles.push(file);
-      } else if (file.startsWith(this.config.testDir)) {
-        testFiles.push(file);
-      }
-    })
+    const input: Record<string, string> = {};
 
-    const input = this.buildInputMap(srcFiles, testFiles);
+    changedFiles.forEach((file) => {
+      let key: string;
+
+      if (file.startsWith(this.config.srcDir)) {
+        const rel = path.relative(this.config.srcDir, file).replace(/\.(ts|js|mjs)$/, '');
+        key = rel.replace(/[\/\\]/g, '_');
+      } else if (file.startsWith(this.config.testDir)) {
+        const rel = path.relative(this.config.testDir, file).replace(/\.spec\.(ts|js|mjs)$/, '');
+        key = `${rel.replace(/[\/\\]/g, '_')}.spec`;
+      } else {
+        return;
+      }
+
+      input[key] = file;
+    });
 
     return {
       ...this.config.viteConfig,
@@ -86,10 +92,9 @@ export class ViteConfigBuilder {
           input,
           output: {
             format: 'es',
-            entryFileNames: '[name].js',
-            chunkFileNames: 'chunks/[name]-[hash].js',
-            preserveModules: true,
-            preserveModulesRoot: this.config.srcDir,
+            entryFileNames: '[name].js',  // flattened
+            chunkFileNames: '[name]-[hash].js',
+            preserveModules: false,       // no folder structure
           },
           preserveEntrySignatures: 'strict',
           cache: viteCache
@@ -105,6 +110,7 @@ export class ViteConfigBuilder {
       logLevel: 'warn'
     };
   }
+
 
   createPathAliases(): Record<string, string> {
     const aliases: Record<string, string> = {};

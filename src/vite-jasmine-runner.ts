@@ -197,7 +197,7 @@ export class ViteJasmineRunner extends EventEmitter {
     });
 
     const onBrowserClose = async () => {
-      console.log('\n\n🔄 Browser window closed');
+      console.log('🔄 Browser window closed');
       await this.cleanup();
       process.exit(0);
     };
@@ -205,13 +205,13 @@ export class ViteJasmineRunner extends EventEmitter {
     await this.browserManager.openBrowser(this.config.port!, onBrowserClose);
 
     process.on('SIGINT', async () => {
-      console.log('\n\n🛑 Stopping HMR server...');
+      console.log('🛑 Stopping HMR server...');
       await this.cleanup();
       process.exit(0);
     });
 
     process.on('SIGTERM', async () => {
-      console.log('\n\n🛑 Received SIGTERM, stopping HMR server...');
+      console.log('🛑 Received SIGTERM, stopping HMR server...');
       await this.cleanup();
       process.exit(0);
     });
