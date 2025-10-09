@@ -19,10 +19,12 @@ async function getViteBuild() {
 }
 
 export interface HmrUpdate {
-  type: 'update' | 'full-reload';
+  type: 'update' | 'full-reload' | 'test-update';
   path: string;
   timestamp: number;
   content?: string;
+  affectedTests?: string[];
+  reason?: string;
 }
 
 export interface FileFilter {
@@ -36,6 +38,16 @@ export interface RebuildStats {
   rebuiltFiles: string[];
   duration: number;
   timestamp: number;
+  updateType: 'test-only' | 'source-change' | 'full';
+}
+
+export type SourceChangeStrategy = 'smart' | 'always-reload' | 'never-reload';
+
+export interface HmrManagerOptions {
+  fileFilter?: Partial<FileFilter>;
+  rebuildMode?: 'all' | 'selective';
+  sourceChangeStrategy?: SourceChangeStrategy;
+  criticalSourcePatterns?: string[]; // patterns that always trigger full reload
 }
 
 export class HmrManager extends EventEmitter {
@@ -56,17 +68,29 @@ export class HmrManager extends EventEmitter {
   private reverseDependencyGraph: Map<string, Set<string>> = new Map();
   private pathAliases: Record<string, string> = {};
   private rebuildMode: 'all' | 'selective' = 'selective';
+  private sourceChangeStrategy: SourceChangeStrategy = 'smart';
+  private criticalSourcePatterns: string[] = [
+    '**/config/**',
+    '**/setup/**',
+    '**/*.config.*',
+    '**/bootstrap.*',
+    '**/main.*',
+    '**/index.*' // root-level index files
+  ];
 
   constructor(
     private config: ViteJasmineConfig,
     private viteConfigBuilder: ViteConfigBuilder,
-    options?: { fileFilter?: Partial<FileFilter>; rebuildMode?: 'all' | 'selective' }
+    options?: HmrManagerOptions
   ) {
     super();
-    // NOTE: Assuming viteConfigBuilder.createPathAliases() is public or correctly accessed
     this.pathAliases = (this.viteConfigBuilder as any).createPathAliases();
     if (options?.fileFilter) this.fileFilter = { ...this.fileFilter, ...options.fileFilter };
     if (options?.rebuildMode) this.rebuildMode = options.rebuildMode;
+    if (options?.sourceChangeStrategy) this.sourceChangeStrategy = options.sourceChangeStrategy;
+    if (options?.criticalSourcePatterns) {
+      this.criticalSourcePatterns = [...this.criticalSourcePatterns, ...options.criticalSourcePatterns];
+    }
   }
 
   setFileFilter(filter: Partial<FileFilter>): void {
@@ -79,6 +103,11 @@ export class HmrManager extends EventEmitter {
     console.log(`✅ Rebuild mode set to: ${mode}`);
   }
 
+  setSourceChangeStrategy(strategy: SourceChangeStrategy): void {
+    this.sourceChangeStrategy = strategy;
+    console.log(`✅ Source change strategy set to: ${strategy}`);
+  }
+
   private matchesFilter(filePath: string): boolean {
     const normalizedPath = filePath;
 
@@ -88,12 +117,10 @@ export class HmrManager extends EventEmitter {
     }
 
     if (this.fileFilter.exclude?.length) {
-      // Using picomatch for exclude patterns
       if (picomatch.isMatch(normalizedPath, this.fileFilter.exclude)) return false;
     }
 
     if (this.fileFilter.include?.length) {
-      // Using picomatch for include patterns
       if (!picomatch.isMatch(normalizedPath, this.fileFilter.include)) return false;
     }
 
@@ -101,33 +128,135 @@ export class HmrManager extends EventEmitter {
   }
 
   /**
-   * Rebuilds the dependency graph entry for the given files, cleaning up
-   * the old reverse dependency entries first.
+   * Determines if a file is a test file
+   */
+  private isTestFile(filePath: string): boolean {
+    const normalized = norm(filePath);
+    return normalized.startsWith(this.config.testDir);
+  }
+
+  /**
+   * Determines if a file is a source file
+   */
+  private isSourceFile(filePath: string): boolean {
+    const normalized = norm(filePath);
+    return normalized.startsWith(this.config.srcDir);
+  }
+
+  /**
+   * Checks if a source file is critical and requires full reload
+   */
+  private isCriticalSourceFile(filePath: string): boolean {
+    if (!this.isSourceFile(filePath)) return false;
+    
+    const normalized = norm(filePath);
+    return this.criticalSourcePatterns.some(pattern => 
+      picomatch.isMatch(normalized, pattern)
+    );
+  }
+
+  /**
+   * Determines the appropriate update strategy based on what changed
+   */
+  private determineUpdateStrategy(
+    changedFiles: string[],
+    changeType: 'add' | 'change' | 'unlink' | 'addDir' | 'unlinkDir'
+  ): { type: HmrUpdate['type']; reason: string } {
+    const hasSourceChanges = changedFiles.some(f => this.isSourceFile(f));
+    const hasTestChanges = changedFiles.some(f => this.isTestFile(f));
+    const hasCriticalChanges = changedFiles.some(f => this.isCriticalSourceFile(f));
+
+    // Test-only changes never require full reload
+    if (!hasSourceChanges && hasTestChanges) {
+      return {
+        type: 'test-update',
+        reason: 'Test files changed - incremental update'
+      };
+    }
+
+    // Source file/directory removal - check if critical
+    if (changeType === 'unlink' || changeType === 'unlinkDir') {
+      if (hasCriticalChanges) {
+        return {
+          type: 'full-reload',
+          reason: 'Critical source file/directory removed'
+        };
+      }
+      // Non-critical source removal can be handled with update
+      return {
+        type: 'update',
+        reason: 'Source file/directory removed - updating dependents'
+      };
+    }
+
+    // Source file/directory addition
+    if (changeType === 'add' || changeType === 'addDir') {
+      // New sources don't require full reload, just build them
+      return {
+        type: 'update',
+        reason: 'Source file/directory added - building new modules'
+      };
+    }
+
+    // Source file modification - apply strategy
+    if (hasSourceChanges) {
+      if (this.sourceChangeStrategy === 'always-reload') {
+        return {
+          type: 'full-reload',
+          reason: 'Source changed - always-reload strategy'
+        };
+      }
+
+      if (this.sourceChangeStrategy === 'never-reload') {
+        return {
+          type: 'update',
+          reason: 'Source changed - never-reload strategy'
+        };
+      }
+
+      // Smart strategy
+      if (hasCriticalChanges) {
+        return {
+          type: 'full-reload',
+          reason: 'Critical source file changed'
+        };
+      }
+
+      return {
+        type: 'update',
+        reason: 'Source changed - incremental update'
+      };
+    }
+
+    // Default to update
+    return {
+      type: 'update',
+      reason: 'General update'
+    };
+  }
+
+  /**
+   * Rebuilds the dependency graph entry for the given files
    */
   private async buildDependencyGraph(files: string[]): Promise<void> {
     for (const file of files) {
       const normalizedFile = norm(file);
       if (!fs.existsSync(file)) {
-        // Deletion should be handled by handleFileRemove/handleDirectoryRemove
         this.dependencyGraph.delete(normalizedFile);
         continue;
       }
 
-      // 1. Get the list of dependencies *before* the content is re-parsed
       const oldDeps = this.dependencyGraph.get(normalizedFile);
 
-      // 2. Remove the current file from the reverse sets of its OLD dependencies
       if (oldDeps) {
         for (const oldDep of oldDeps) {
           this.reverseDependencyGraph.get(oldDep)?.delete(normalizedFile);
         }
       }
 
-      // 3. Re-read dependencies (forward link)
       const newDeps = await this.extractDependencies(file);
       this.dependencyGraph.set(normalizedFile, newDeps);
 
-      // 4. Update reverse graph for NEW dependencies
       for (const newDep of newDeps) {
         if (!this.reverseDependencyGraph.has(newDep)) {
           this.reverseDependencyGraph.set(newDep, new Set());
@@ -167,7 +296,7 @@ export class HmrManager extends EventEmitter {
 
     const dir = path.dirname(fromFile);
     let resolved = path.resolve(dir, importPath);
-    const extensions = ['.ts', '.js', '.mjs', '.tsx', '.jsx', '']; // Added TSX/JSX extensions
+    const extensions = ['.ts', '.js', '.mjs', '.tsx', '.jsx', ''];
 
     if (fs.existsSync(resolved) && fs.statSync(resolved).isFile()) return resolved;
 
@@ -183,7 +312,7 @@ export class HmrManager extends EventEmitter {
   }
 
   private resolvePathAlias(importPath: string): string | null {
-    const extensions = ['.ts', '.js', '.mjs', '.tsx', '.jsx', '']; // Added TSX/JSX extensions
+    const extensions = ['.ts', '.js', '.mjs', '.tsx', '.jsx', ''];
     for (const [alias, aliasPath] of Object.entries(this.pathAliases)) {
       if (importPath === alias || importPath.startsWith(alias.replace(/\/\*$/, '') + '/')) {
         const relativePart = importPath.slice(alias.replace(/\/\*$/, '').length);
@@ -216,11 +345,18 @@ export class HmrManager extends EventEmitter {
       filesToRebuild.add(current);
 
       const dependents = this.reverseDependencyGraph.get(current);
-      // Only traverse up to dependent source files and test files
       if (dependents) dependents.forEach(d => queue.push(d));
     }
 
     return filesToRebuild;
+  }
+
+  /**
+   * Gets all test files affected by a source change
+   */
+  private getAffectedTests(sourceFile: string): string[] {
+    const allDependents = this.getFilesToRebuild(sourceFile);
+    return Array.from(allDependents).filter(f => this.isTestFile(f));
   }
 
   async start(): Promise<void> {
@@ -232,7 +368,7 @@ export class HmrManager extends EventEmitter {
 
     this.watcher.on('change', filePath => {
       filePath = norm(filePath);
-      if (this.matchesFilter(filePath)) this.queueRebuild(filePath);
+      if (this.matchesFilter(filePath)) this.queueRebuild(filePath, 'change');
     });
 
     this.watcher.on('add', filePath => {
@@ -251,7 +387,7 @@ export class HmrManager extends EventEmitter {
     this.watcher.on('ready', async () => {
       await this.scanAllFiles();
       await this.buildDependencyGraph(this.allFiles);
-      console.log(`✅ HMR watching ${this.allFiles.length} files (mode: ${this.rebuildMode})`);
+      console.log(`✅ HMR watching ${this.allFiles.length} files (mode: ${this.rebuildMode}, strategy: ${this.sourceChangeStrategy})`);
       this.emit('hmr:ready');
     });
   }
@@ -259,7 +395,7 @@ export class HmrManager extends EventEmitter {
   private async scanAllFiles(): Promise<void> {
     const defaultExtensions = this.fileFilter.extensions!.join(',');
     const srcPattern = norm(path.join(this.config.srcDir, `**/*{${defaultExtensions}}`));
-    const testPattern = norm(path.join(this.config.testDir, `**/*{${defaultExtensions}}`)); // Include all trackable extensions
+    const testPattern = norm(path.join(this.config.testDir, `**/*{${defaultExtensions}}`));
 
     const srcFiles = glob.sync(srcPattern, { absolute: true, ignore: ['**/node_modules/**'] });
     const testFiles = glob.sync(testPattern, { absolute: true, ignore: ['**/node_modules/**'] });
@@ -271,9 +407,13 @@ export class HmrManager extends EventEmitter {
     const normalized = norm(filePath);
     if (!this.allFiles.includes(normalized)) {
       this.allFiles.push(normalized);
-      console.log(`➕ File added: ${filePath}`);
+      
+      const fileType = this.isTestFile(filePath) ? 'test' : 
+                      this.isSourceFile(filePath) ? 'source' : 'unknown';
+      console.log(`➕ ${fileType} file added: ${filePath}`);
+      
       await this.buildDependencyGraph([normalized]);
-      this.queueRebuild(filePath);
+      this.queueRebuild(filePath, 'add');
     }
   }
 
@@ -290,18 +430,31 @@ export class HmrManager extends EventEmitter {
     for (const deps of this.dependencyGraph.values()) deps.delete(normalized);
     for (const dep of this.reverseDependencyGraph.values()) dep.delete(normalized);
 
-    console.log(`➖ File removed: ${filePath}`);
+    const fileType = this.isTestFile(filePath) ? 'test' : 
+                    this.isSourceFile(filePath) ? 'source' : 'unknown';
+    console.log(`➖ ${fileType} file removed: ${filePath}`);
+
+    // Determine update strategy
+    const strategy = this.determineUpdateStrategy([normalized], 'unlink');
+
+    this.emit('hmr:update', {
+      type: strategy.type,
+      path: this.getOutputName(normalized),
+      timestamp: Date.now(),
+      affectedTests: this.isSourceFile(filePath) ? Array.from(affectedFiles).filter(f => this.isTestFile(f)) : undefined,
+      reason: strategy.reason
+    });
 
     if (this.rebuildMode === 'selective' && affectedFiles.size > 0) {
-      // Queue a rebuild for dependents who now have a broken import
-      affectedFiles.forEach(f => this.queueRebuild(f));
+      affectedFiles.forEach(f => this.queueRebuild(f, 'change'));
     }
-    // Always force full reload on file removal as it breaks the module graph state
-    this.emit('hmr:update', { type: 'full-reload', path: normalized, timestamp: Date.now() });
   }
 
   private async handleDirectoryAdd(dirPath: string): Promise<void> {
-    console.log(`📁 Directory added: ${dirPath}`);
+    const dirType = dirPath.startsWith(this.config.testDir) ? 'test' :
+                   dirPath.startsWith(this.config.srcDir) ? 'source' : 'unknown';
+    console.log(`📁 ${dirType} directory added: ${dirPath}`);
+    
     const defaultExtensions = this.fileFilter.extensions!.join(',');
     const pattern = path.join(dirPath, `**/*{${defaultExtensions}}`);
     const newFiles = glob.sync(pattern, { absolute: true, ignore: ['**/node_modules/**'] })
@@ -317,14 +470,28 @@ export class HmrManager extends EventEmitter {
     }
 
     if (filesToProcess.length) {
-      console.log(`📦 Found ${filesToProcess.length} files in new directory`);
+      console.log(`📦 Found ${filesToProcess.length} ${dirType} files in new directory`);
       await this.buildDependencyGraph(filesToProcess);
-      filesToProcess.forEach(f => this.queueRebuild(f));
+      
+      // Directory additions don't require full reload
+      const strategy = this.determineUpdateStrategy(filesToProcess, 'addDir');
+      
+      this.emit('hmr:update', {
+        type: strategy.type,
+        path: dirPath,
+        timestamp: Date.now(),
+        reason: strategy.reason
+      });
+      
+      filesToProcess.forEach(f => this.queueRebuild(f, 'add'));
     }
   }
 
   private async handleDirectoryRemove(dirPath: string): Promise<void> {
-    console.log(`📁 Directory removed: ${dirPath}`);
+    const dirType = dirPath.startsWith(this.config.testDir) ? 'test' :
+                   dirPath.startsWith(this.config.srcDir) ? 'source' : 'unknown';
+    console.log(`📁 ${dirType} directory removed: ${dirPath}`);
+    
     const removedFiles = this.allFiles.filter(f => f.startsWith(dirPath + path.sep) || f === dirPath);
     const affectedFiles = new Set<string>();
 
@@ -341,18 +508,25 @@ export class HmrManager extends EventEmitter {
       for (const dep of this.reverseDependencyGraph.values()) dep.delete(normalized);
     }
 
-    // Always force full reload on directory removal
-    this.emit('hmr:update', { type: 'full-reload', path: dirPath, timestamp: Date.now() });
+    // Determine strategy based on what was removed
+    const strategy = this.determineUpdateStrategy(removedFiles, 'unlinkDir');
+
+    this.emit('hmr:update', {
+      type: strategy.type,
+      path: dirPath,
+      timestamp: Date.now(),
+      affectedTests: Array.from(affectedFiles).filter(f => this.isTestFile(f)),
+      reason: strategy.reason
+    });
 
     if (this.rebuildMode === 'selective' && affectedFiles.size > 0) {
-      // Queue a rebuild for dependents who now have a broken import
-      affectedFiles.forEach(f => this.queueRebuild(f));
+      affectedFiles.forEach(f => this.queueRebuild(f, 'change'));
     }
   }
 
-  private queueRebuild(filePath: string) {
+  private queueRebuild(filePath: string, changeType: 'add' | 'change' | 'unlink' = 'change') {
     const normalized = norm(filePath);
-    this.directChanges.add(normalized); // track direct changes only
+    this.directChanges.add(normalized);
     this.rebuildQueue.add(normalized);
 
     if (!this.isRebuilding) this.rebuildAll();
@@ -367,30 +541,35 @@ export class HmrManager extends EventEmitter {
 
         const changedFiles = Array.from(this.rebuildQueue);
         this.rebuildQueue.clear();
+        const directChangedFiles = Array.from(this.directChanges);
         this.directChanges.clear();
 
         const filesToRebuild = new Set<string>();
 
         for (const file of changedFiles) {
-          // Get the file itself + all dependent source files/modules
           const deps = this.getFilesToRebuild(file);
           deps.forEach(f => filesToRebuild.add(f));
-
-          // If the change originated in a source file, ensure its dependent tests are included.
-          if (file.startsWith(this.config.srcDir)) {
-            // Dependent tests are already included via reverse graph traversal
-            // (since tests import sources, tests are dependents of sources).
-            // The broad inclusion of all tests has been removed for better selectivity.
-          } else if (file.startsWith(this.config.testDir)) {
-            // If a test file changed, ensure it's in the rebuild set (already handled by getFilesToRebuild)
-          }
         }
 
         const rebuiltFiles = Array.from(filesToRebuild);
 
-        console.log(`📦 Changed: ${changedFiles.length} files → Rebuilding: ${rebuiltFiles.length} files`);
+        // Determine update strategy
+        const strategy = this.determineUpdateStrategy(directChangedFiles, 'change');
+        
+        // Collect affected tests for source changes
+        const affectedTests = directChangedFiles
+          .filter(f => this.isSourceFile(f))
+          .flatMap(f => this.getAffectedTests(f));
 
-        // Re-calculate dependencies for all files being rebuilt
+        const sourceChanges = directChangedFiles.filter(f => this.isSourceFile(f));
+        const testChanges = directChangedFiles.filter(f => this.isTestFile(f));
+
+        console.log(
+          `📦 Changed: ${directChangedFiles.length} files ` +
+          `(${sourceChanges.length} source, ${testChanges.length} test) → ` +
+          `Rebuilding: ${rebuiltFiles.length} files (${strategy.type})`
+        );
+
         await this.buildDependencyGraph(rebuiltFiles);
 
         const viteConfig = this.viteConfigBuilder.createViteConfigForFiles(rebuiltFiles, this.viteCache);
@@ -405,17 +584,29 @@ export class HmrManager extends EventEmitter {
           if (fs.existsSync(outputPath)) {
             const content = fs.readFileSync(outputPath, 'utf-8');
             this.emit('hmr:update', {
-              type: 'update',
-              path: `/${relative}`,
+              type: strategy.type,
+              path: relative,
               timestamp: Date.now(),
               content,
+              affectedTests: affectedTests.length > 0 ? affectedTests : undefined,
+              reason: strategy.reason
             });
           }
         }
 
         const duration = Date.now() - startTime;
-        this.emit('hmr:rebuild', { changedFiles, rebuiltFiles, duration, timestamp: Date.now() });
-        console.log(`✅ Rebuild complete: ${rebuiltFiles.length} files in ${duration}ms`);
+        const updateType = sourceChanges.length > 0 ? 'source-change' :
+                          testChanges.length > 0 ? 'test-only' : 'full';
+        
+        this.emit('hmr:rebuild', {
+          changedFiles: directChangedFiles,
+          rebuiltFiles,
+          duration,
+          timestamp: Date.now(),
+          updateType
+        } as RebuildStats);
+        
+        console.log(`✅ Rebuild complete (${updateType}): ${rebuiltFiles.length} files in ${duration}ms`);
       }
     } catch (error) {
       console.error('❌ Rebuild failed:', error);
@@ -431,7 +622,6 @@ export class HmrManager extends EventEmitter {
       : path.relative(norm(this.config.srcDir), filePath);
 
     const ext = path.extname(filePath);
-    // Ensure relative path is normalized before replacement
     return norm(relative).replace(ext, '.js').replace(/[\/\\]/g, '_');
   }
 
@@ -439,17 +629,30 @@ export class HmrManager extends EventEmitter {
     const normalized = norm(filePath);
     return {
       dependencies: Array.from(this.dependencyGraph.get(normalized) || []),
-      dependents: Array.from(this.reverseDependencyGraph.get(normalized) || [])
+      dependents: Array.from(this.reverseDependencyGraph.get(normalized) || []),
+      isTest: this.isTestFile(normalized),
+      isSource: this.isSourceFile(normalized),
+      isCritical: this.isCriticalSourceFile(normalized),
+      affectedTests: this.isSourceFile(normalized) ? this.getAffectedTests(normalized) : []
     };
   }
 
   getStats() {
+    const sourceFiles = this.allFiles.filter(f => this.isSourceFile(f));
+    const testFiles = this.allFiles.filter(f => this.isTestFile(f));
+    const criticalFiles = sourceFiles.filter(f => this.isCriticalSourceFile(f));
+
     return {
       totalFiles: this.allFiles.length,
+      sourceFiles: sourceFiles.length,
+      testFiles: testFiles.length,
+      criticalSourceFiles: criticalFiles.length,
       trackedDependencies: this.dependencyGraph.size,
       rebuildMode: this.rebuildMode,
+      sourceChangeStrategy: this.sourceChangeStrategy,
       fileFilter: this.fileFilter,
-      pathAliases: this.pathAliases
+      pathAliases: this.pathAliases,
+      criticalPatterns: this.criticalSourcePatterns
     };
   }
 

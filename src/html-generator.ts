@@ -244,7 +244,7 @@ export class HtmlGenerator {
         
         // Attach file path to suites after import
         if (window.HMRClient && window.HMRClient.attachFilePathToSuites) {
-          await window.HMRClient.attachFilePathToSuites('/' + file, module);
+          await window.HMRClient.attachFilePathToSuites(file, module);
         }
       }
       
@@ -410,12 +410,8 @@ window.HMRClient = (function() {
   }
 
   const env = j$.getEnv();
-  const suiteRegistry = new Map();
-  const specRegistry = new Map();
-  const suiteMetadataMap = new WeakMap();
-  const specSuiteMap = new WeakMap();
 
-  // Helper: set non-enumerable _filePath if possible
+  // Helper: set non-enumerable _filePath
   function setFilePath(obj, filePath) {
     if (!obj) return;
     try {
@@ -426,145 +422,105 @@ window.HMRClient = (function() {
         writable: true
       });
     } catch (e) {
-      // fallback
       obj._filePath = filePath;
     }
   }
 
-  // Collect all suites (real suites resolved) starting at root
-  function collectSuiteSnapshot(root) {
-    const ids = new Set();
-    const refs = new Set();
-
-    const stack = [root];
-    while (stack.length) {
-      const node = stack.pop();
-      if (!node) continue;
-      const children = node.children || [];
-      for (const child of children) {
-        const real = (child && child.__suite) ? child.__suite : child;
-        if (!real) continue;
-        if (!refs.has(real)) {
-          refs.add(real);
-          if (real.id != null) ids.add(real.id);
-          stack.push(real);
-        }
-      }
-    }
-
-    return { ids, refs };
-  }
-
-  // Traverse tree and call fn(suite, parent) on each real suite (parent is the suite's parent object)
-  function traverseSuites(root, fn) {
-    const stack = [{ node: root, parent: null }];
-    while (stack.length) {
-      const { node, parent } = stack.pop();
-      const children = node.children || [];
-      for (const child of children) {
-        const real = (child && child.__suite) ? child.__suite : child;
-        if (!real) continue;
-        fn(real, node);
-        stack.push({ node: real, parent: node });
-      }
-    }
-  }
-
-  /* -----------------------------
-    attachFilePathToSuites (robust)
-    - snapshots existing suites before running tests
-    - runs module defineTests (if provided)
-    - finds newly created suites (by id or reference)
-    - tags suites/specs and ensures metadata.__suite backrefs
-    ----------------------------- */
+  // Attach file path to newly created suites recursively
   async function attachFilePathToSuites(filePath, moduleExports) {
     const topSuite = env.topSuite();
     if (!topSuite) return;
 
-    // snapshot before
-    const before = collectSuiteSnapshot(topSuite);
-
-    // trigger module test definitions if it exposes them (many modules define tests on import)
+    // Trigger module test definitions
     if (typeof moduleExports?.defineTests === 'function') {
-      moduleExports.defineTests();
+        moduleExports.defineTests();
     }
 
-    // After module ran, find suites that are new (by id or by reference)
-    const newSuites = [];
-    traverseSuites(topSuite, (suite /* real suite */, parent) => {
-      const isNewById = (suite.id != null) && !before.ids.has(suite.id);
-      const isNewByRef = !before.refs.has(suite);
-      if (isNewById || (suite.id == null && isNewByRef)) {
-        newSuites.push(suite);
-      }
-    });
+    // Walk all suites recursively and attach _filePath if missing
+    function tagSuites(suite) {
+        if (!suite) return;
 
-    // If nothing found via traversal, fallback to checking topSuite.children difference by id/ref
-    if (newSuites.length === 0) {
-      const currentChildren = topSuite.children || [];
-      const beforeChildIds = new Set([...before.ids]);
-      for (const child of currentChildren) {
-        const real = (child && child.__suite) ? child.__suite : child;
-        if (!real) continue;
-        if ((real.id != null && !beforeChildIds.has(real.id)) || !before.refs.has(real)) {
-          newSuites.push(real);
+        // Attach _filePath if not set
+        if (!suite._filePath) {
+            setFilePath(suite, filePath);
         }
-      }
+
+        // Ensure metadata backref
+        if (suite.metadata && !suite.metadata.__suite) {
+            try {
+                Object.defineProperty(suite.metadata, '__suite', {
+                    value: suite,
+                    enumerable: false,
+                    configurable: true,
+                    writable: false
+                });
+            } catch {}
+        }
+
+        // Recurse children
+        const children = suite.children || [];
+        for (const ch of children) {
+            const real = ch.__suite || ch;
+            tagSuites(real);
+        }
     }
 
-    // Tag each new suite recursively
-    const tagRecursive = (suite) => {
-      if (!suite) return;
-      setFilePath(suite, filePath);
-
-      // ensure metadata.__suite backref
-      if (suite.metadata && !suite.metadata.__suite) {
-        try {
-          Object.defineProperty(suite.metadata, '__suite', {
-            value: suite,
-            enumerable: false,
-            configurable: true,
-            writable: false
-          });
-        } catch (e) {
-          // ignore
-        }
-      }
-
-      // tag specs
-      if (Array.isArray(suite.specs)) {
-        suite.specs.forEach(spec => spec && setFilePath(spec, filePath));
-      }
-
-      // recurse children safely
-      const children = suite.safeChildren || suite.children || [];
-      for (const ch of children) {
-        const realChild = (ch && ch.__suite) ? ch.__suite : ch;
-        if (realChild) tagRecursive(realChild);
-      }
-    };
-
-    newSuites.forEach(tagRecursive);
+    tagSuites(topSuite);
   }
 
-  /* -----------------------------
-    detachFilePathSuites (robust)
-    - walks tree from topSuite and removes suites/specs that belong to filePath
-    - uses removeChild/removeChildren when available (preferred)
-    - falls back to splice only if no safe removal method exists (logged)
-    ----------------------------- */
-    function detachFilePathSuites(filePath) {
+  function detachFilePathSuites(filePath) {
+    const topSuite = env.topSuite();
+    if (!topSuite) return;
+
+    function cleanSuite(suite) {
+      if (!suite || !Array.isArray(suite.children)) return;
+
+      const keep = [];
+
+      for (const childWrapper of suite.children) {
+        if (!childWrapper) continue;
+
+        const child = childWrapper.__suite || childWrapper;
+
+        if (child._filePath === filePath) {
+          // Just skip this one entirely
+          continue;
+        }
+
+        // Recursively clean nested suites
+        cleanSuite(child);
+        keep.push(childWrapper);
+      }
+
+      // Replace children array directly (safe for all Jasmine versions)
+      suite.removeChildren();
+      keep.forEach(item => suite.addChild(item));
+
+      // Also remove matching specs from this suite
+      if (Array.isArray(suite.specs)) {
+        suite.specs = suite.specs.filter(spec => spec._filePath !== filePath);
+      }
+    }
+
+    // Clean starting from top suite’s real instance
+    cleanSuite(topSuite.__suite);
+  }
+
+  // Detach all suites/children that belong to a file
+  function detachFilePathSuites(filePath) {
       const topSuite = env.topSuite();
       if (!topSuite) return;
 
       function cleanSuite(suite) {
-        if (!suite?.children?.length) return;
+        if (!suite) return;
 
-        const children = [...suite.children];
+        const children = suite.children || [];
         const keep = [];
 
-        for (const child of children) {
-            if (!child) continue;
+        for (const childWrapper of children) {
+            if (!childWrapper) continue;
+
+            const child = childWrapper.__suite || childWrapper;
 
             if (child._filePath === filePath) {
                 // Remove all nested children first
@@ -574,10 +530,8 @@ window.HMRClient = (function() {
                 // Drop this suite completely (do not add to keep)
             } else {
                 // Recurse into nested suites
-                if (child.children?.length) {
-                    cleanSuite(child);
-                }
-                keep.push(child);
+                cleanSuite(child);
+                keep.push(childWrapper); // keep the original wrapper
             }
         }
 
@@ -585,13 +539,11 @@ window.HMRClient = (function() {
         if (typeof suite.removeChildren === 'function' && typeof suite.addChild === 'function') {
             suite.removeChildren();
             keep.forEach(c => suite.addChild(c));
-        } else {
-            // Fallback for old Jasmine or synthetic suites
-            suite.children = keep;
         }
-    }
+      }
 
-    cleanSuite(topSuite);
+
+    cleanSuite(topSuite.__suite);
 
     // Clean recursion: examine children copy to avoid concurrent mutation issues
     function cleanParent(parent) {
@@ -620,7 +572,7 @@ window.HMRClient = (function() {
             // last resort: attempt to remove by finding same object in parent.children
             const idx = (parent.children || []).indexOf(childWrapper);
             if (idx >= 0) {
-              console.warn('⚠️ removeChild unavailable — using splice fallback to remove suite child');
+              console.warn('⚠️  removeChild unavailable — using splice fallback to remove suite child');
               parent.children.splice(idx, 1);
             } else {
               // nothing we can do safely
@@ -630,7 +582,7 @@ window.HMRClient = (function() {
       }
     }
 
-    cleanParent(topSuite);
+    cleanParent(topSuite.__suite);
   }
 
   // Hot update a single module
@@ -658,17 +610,20 @@ window.HMRClient = (function() {
       }
 
       console.log('🔥 Hot updating:', update.path);
-      try {
-        const blob = new Blob([update.content], { type: 'application/javascript' });
-        const url = URL.createObjectURL(blob);
 
-        const newModule = await import(url);
-        moduleRegistry.set(update.path, newModule);
+      
+      try {
+        let newModule = null;
+        if (update.content) {
+          const blob = new Blob([update.content], { type: 'application/javascript' });
+          const url = URL.createObjectURL(blob);
+          newModule = await import(url);
+          moduleRegistry.set(update.path, newModule);
+          URL.revokeObjectURL(url);
+        }
 
         await hotUpdateSpec(update.path, newModule);
-
-        URL.revokeObjectURL(url);
-        console.log('✅ HMR update applied for:', update.path);
+        console.log('✅ HMR update applied:', update.path);
       } catch (err) {
         console.error('❌ HMR update failed:', err);
         location.reload();
@@ -676,7 +631,15 @@ window.HMRClient = (function() {
     }
   }
 
-  return { handleMessage, attachFilePathToSuites, detachFilePathSuites };
+  return {
+    handleMessage,
+    attachFilePathToSuites,
+    detachFilePathSuites,
+    clearCache: (filePath) => {
+      if (filePath) moduleRegistry.delete(filePath);
+      else moduleRegistry.clear();
+    }
+  };
 })();
 `;
   }
