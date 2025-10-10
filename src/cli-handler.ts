@@ -32,8 +32,7 @@ export class CLIHandler {
       const invalidFlags: string[] = [];
       if (headless) invalidFlags.push('--headless');
       if (coverage) invalidFlags.push('--coverage');
-      if (hasBrowserArg) invalidFlags.push('--browser');
-
+      
       if (invalidFlags.length > 0) {
         console.error(`❌ The --watch flag cannot be used with: ${invalidFlags.join(', ')}`);
         process.exit(1);
@@ -44,16 +43,15 @@ export class CLIHandler {
       let config = ConfigManager.loadViteJasmineBrowserConfig('ts-test-runner.json');
       config = {
         ...config,
-        headless: headless ? true : config.headless,
-        coverage: coverage ? true : config.coverage,
-        browser: hasBrowserArg ? browserName : config.browser,
-        watch
+        headless: headless ? true : (config.headless || false),
+        coverage: coverage ? true : (config.coverage || false),
+        browser: hasBrowserArg ? browserName : (config.browser || 'chrome'),
+        watch: watch ? true : (config.watch || false)
       };
 
       const runner = createViteJasmineRunner(config);
 
       if (watch) {
-        console.log('👀 Watch mode enabled — running in continuous mode...');
         await runner.watch();
       } else {
         await runner.start();

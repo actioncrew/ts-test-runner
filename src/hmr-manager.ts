@@ -296,7 +296,7 @@ export class HmrManager extends EventEmitter {
 
     const dir = path.dirname(fromFile);
     let resolved = path.resolve(dir, importPath);
-    const extensions = ['.ts', '.js', '.mjs', '.tsx', '.jsx', ''];
+    const extensions = [...this.fileFilter.extensions!, ''];
 
     if (fs.existsSync(resolved) && fs.statSync(resolved).isFile()) return resolved;
 
@@ -312,7 +312,7 @@ export class HmrManager extends EventEmitter {
   }
 
   private resolvePathAlias(importPath: string): string | null {
-    const extensions = ['.ts', '.js', '.mjs', '.tsx', '.jsx', ''];
+    const extensions = [...this.fileFilter.extensions!, ''];
     for (const [alias, aliasPath] of Object.entries(this.pathAliases)) {
       if (importPath === alias || importPath.startsWith(alias.replace(/\/\*$/, '') + '/')) {
         const relativePart = importPath.slice(alias.replace(/\/\*$/, '').length);
@@ -397,49 +397,58 @@ export class HmrManager extends EventEmitter {
     const srcPattern = norm(path.join(this.config.srcDir, `**/*{${defaultExtensions}}`));
     const testPattern = norm(path.join(this.config.testDir, `**/*{${defaultExtensions}}`));
 
-    const srcFiles = glob.sync(srcPattern, { absolute: true, ignore: ['**/node_modules/**'] });
-    const testFiles = glob.sync(testPattern, { absolute: true, ignore: ['**/node_modules/**'] });
+    const srcFiles = glob.sync(srcPattern, { absolute: true, ignore: ['**/node_modules/**'] }).map(file => norm(file));
+    const testFiles = glob.sync(testPattern, { absolute: true, ignore: ['**/node_modules/**'] }).map(file => norm(file));
 
-    this.allFiles = [...srcFiles, ...testFiles].filter(f => this.matchesFilter(f));
+    this.allFiles = [...srcFiles, ...testFiles].filter(f => this.matchesFilter(f)).map(file => norm(file));
   }
 
   private async handleFileAdd(filePath: string): Promise<void> {
-    const normalized = norm(filePath);
-    if (!this.allFiles.includes(normalized)) {
-      this.allFiles.push(normalized);
+    filePath = norm(filePath);
+    if (!this.allFiles.includes(filePath)) {
+      this.allFiles.push(filePath);
       
       const fileType = this.isTestFile(filePath) ? 'test' : 
                       this.isSourceFile(filePath) ? 'source' : 'unknown';
-      console.log(`➕ ${fileType} file added: ${filePath}`);
+      const output = norm(this.isTestFile(filePath) ? path.relative(this.config.testDir, filePath) : path.relative(this.config.srcDir, filePath)); 
+      console.log(`➕ ${fileType} file added: ${output}`);
       
-      await this.buildDependencyGraph([normalized]);
+      await this.buildDependencyGraph([filePath]);
       this.queueRebuild(filePath, 'add');
     }
   }
 
   private handleFileRemove(filePath: string): void {
-    const normalized = norm(filePath);
+    filePath = norm(filePath);
     const affectedFiles = new Set<string>();
-    const dependents = this.reverseDependencyGraph.get(normalized);
+    const dependents = this.reverseDependencyGraph.get(filePath);
     dependents?.forEach(d => affectedFiles.add(d));
 
-    this.allFiles = this.allFiles.filter(f => f !== normalized);
-    this.dependencyGraph.delete(normalized);
-    this.reverseDependencyGraph.delete(normalized);
+    this.allFiles = this.allFiles.filter(f => f !== filePath);
+    this.dependencyGraph.delete(filePath);
+    this.reverseDependencyGraph.delete(filePath);
 
-    for (const deps of this.dependencyGraph.values()) deps.delete(normalized);
-    for (const dep of this.reverseDependencyGraph.values()) dep.delete(normalized);
+    for (const deps of this.dependencyGraph.values()) deps.delete(filePath);
+    for (const dep of this.reverseDependencyGraph.values()) dep.delete(filePath);
 
     const fileType = this.isTestFile(filePath) ? 'test' : 
                     this.isSourceFile(filePath) ? 'source' : 'unknown';
+    filePath = norm(this.isTestFile(filePath) ? path.relative(this.config.testDir, filePath) : path.relative(this.config.srcDir, filePath)); 
     console.log(`➖ ${fileType} file removed: ${filePath}`);
 
     // Determine update strategy
-    const strategy = this.determineUpdateStrategy([normalized], 'unlink');
+    const strategy = this.determineUpdateStrategy([filePath], 'unlink');
+
+    const output = norm(path.join(this.config.outDir, this.getOutputName(filePath)));
+
+    if(fs.existsSync(output)) {
+      fs.rmSync(output);
+      fs.rmSync(output.replace(/\.js$/, '.js.map'));
+    }
 
     this.emit('hmr:update', {
       type: strategy.type,
-      path: this.getOutputName(normalized),
+      path: this.getOutputName(filePath),
       timestamp: Date.now(),
       affectedTests: this.isSourceFile(filePath) ? Array.from(affectedFiles).filter(f => this.isTestFile(f)) : undefined,
       reason: strategy.reason
@@ -451,9 +460,10 @@ export class HmrManager extends EventEmitter {
   }
 
   private async handleDirectoryAdd(dirPath: string): Promise<void> {
-    const dirType = dirPath.startsWith(this.config.testDir) ? 'test' :
-                   dirPath.startsWith(this.config.srcDir) ? 'source' : 'unknown';
-    console.log(`📁 ${dirType} directory added: ${dirPath}`);
+    dirPath = norm(dirPath);
+    const dirType = dirPath.startsWith(this.config.testDir) ? 'test': 'source';
+    const output = norm(dirPath.startsWith(this.config.testDir) ? path.relative(this.config.testDir, dirPath) : path.relative(this.config.srcDir, dirPath));
+    console.log(`📁 ${dirType.charAt(0).toUpperCase() + dirType.slice(1)} directory added: ${output}`);
     
     const defaultExtensions = this.fileFilter.extensions!.join(',');
     const pattern = path.join(dirPath, `**/*{${defaultExtensions}}`);
@@ -478,7 +488,7 @@ export class HmrManager extends EventEmitter {
       
       this.emit('hmr:update', {
         type: strategy.type,
-        path: dirPath,
+        path: output,
         timestamp: Date.now(),
         reason: strategy.reason
       });
@@ -488,9 +498,10 @@ export class HmrManager extends EventEmitter {
   }
 
   private async handleDirectoryRemove(dirPath: string): Promise<void> {
-    const dirType = dirPath.startsWith(this.config.testDir) ? 'test' :
-                   dirPath.startsWith(this.config.srcDir) ? 'source' : 'unknown';
-    console.log(`📁 ${dirType} directory removed: ${dirPath}`);
+    dirPath = norm(dirPath);
+    const dirType = dirPath.startsWith(this.config.testDir) ? 'test': 'source';
+    const output = norm(dirPath.startsWith(this.config.testDir) ? path.relative(this.config.testDir, dirPath) : path.relative(this.config.srcDir, dirPath));
+    console.log(`📁 ${dirType.charAt(0).toUpperCase() + dirType.slice(1)} directory removed: ${output}`);
     
     const removedFiles = this.allFiles.filter(f => f.startsWith(dirPath + path.sep) || f === dirPath);
     const affectedFiles = new Set<string>();
@@ -513,7 +524,7 @@ export class HmrManager extends EventEmitter {
 
     this.emit('hmr:update', {
       type: strategy.type,
-      path: dirPath,
+      path: output,
       timestamp: Date.now(),
       affectedTests: Array.from(affectedFiles).filter(f => this.isTestFile(f)),
       reason: strategy.reason
