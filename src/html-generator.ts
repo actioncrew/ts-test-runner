@@ -890,7 +890,6 @@ window.HMRClient = (function() {
 
     function listTests() {
       const specs = getAllSpecs();
-      specs.sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' })); 
       console.table(specs.map(s => ({
         id: s.id,
         name: s.description,
