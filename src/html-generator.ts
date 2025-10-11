@@ -346,8 +346,6 @@ function WebSocketEventForwarder() {
 
   // Jasmine reporter hooks
   this.jasmineStarted = function(suiteInfo) {
-    console.log('Jasmine started with', suiteInfo.totalSpecsDefined, 'specs');
-
     self.send({
       type: 'start',
       totalSpecs: suiteInfo.totalSpecsDefined,
@@ -372,7 +370,6 @@ function WebSocketEventForwarder() {
   };
 
   this.jasmineDone = function(result) {
-    console.log('Jasmine completed');
     const coverage = globalThis.__coverage__;
 
     self.send({
@@ -803,8 +800,6 @@ window.HMRClient = (function() {
         if (originalSpecFilter === null) {
           originalSpecFilter = env.specFilter;
         }
-
-        console.log(\`🚀 Starting execution of \${specIds.length} spec(s)\`);
 
         // Reset environment before execution
         resetEnvironment();
