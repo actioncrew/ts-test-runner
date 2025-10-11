@@ -51,7 +51,6 @@ export interface HmrManagerOptions {
 }
 
 export class HmrManager extends EventEmitter {
-  private viteCache: any = null;
   private watcher: FSWatcher | null = null;
   private isRebuilding: boolean = false;
   private rebuildQueue: Set<string> = new Set();
@@ -81,6 +80,7 @@ export class HmrManager extends EventEmitter {
   constructor(
     private config: ViteJasmineConfig,
     private viteConfigBuilder: ViteConfigBuilder,
+    private viteCache: any = null,
     options?: HmrManagerOptions
   ) {
     super();
@@ -583,8 +583,9 @@ export class HmrManager extends EventEmitter {
 
         await this.buildDependencyGraph(rebuiltFiles);
 
-        const viteConfig = this.viteConfigBuilder.createViteConfigForFiles(rebuiltFiles, this.viteCache);
+        const viteConfig = this.viteConfigBuilder.createViteConfigForFiles(rebuiltFiles.filter(f => this.isSourceFile(f)), rebuiltFiles.filter(f => this.isTestFile(f)), this.viteCache);
         const build = await getViteBuild();
+        const startBuildTime = Date.now();
         const result = await build(viteConfig);
         this.viteCache = result;
 
@@ -592,8 +593,11 @@ export class HmrManager extends EventEmitter {
           const relative = this.getOutputName(file);
           const outputPath = path.join(this.config.outDir, relative);
 
+          // Read directly from outDir (not from result)
           if (fs.existsSync(outputPath)) {
             const content = fs.readFileSync(outputPath, 'utf-8');
+
+            // ✅ Emit update so browser HMR can pick it up
             this.emit('hmr:update', {
               type: strategy.type,
               path: relative,
@@ -602,8 +606,16 @@ export class HmrManager extends EventEmitter {
               affectedTests: affectedTests.length > 0 ? affectedTests : undefined,
               reason: strategy.reason
             });
+          } else {
+            console.warn(`⚠️ Output not found for ${relative} (expected at ${outputPath})`);
           }
         }
+
+        console.log(
+          `📦 Vite rebuild wrote ${rebuiltFiles.length} files to ${this.config.outDir} in ${
+            Date.now() - startBuildTime
+          }ms`
+        );
 
         const duration = Date.now() - startTime;
         const updateType = sourceChanges.length > 0 ? 'source-change' :

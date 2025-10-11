@@ -22,6 +22,7 @@ import { HmrManager } from './hmr-manager';
 const { build: viteBuild } = await import('vite');
 
 export class ViteJasmineRunner extends EventEmitter {
+  private viteCache: any = null;
   private config: ViteJasmineConfig;
   private fileDiscovery: FileDiscoveryService;
   private viteConfigBuilder: ViteConfigBuilder;
@@ -93,7 +94,7 @@ export class ViteJasmineRunner extends EventEmitter {
       viteConfig.build!.rollupOptions!.input = input;
 
       console.log(`📦 Building ${Object.keys(input).length} files...`);
-      await viteBuild(viteConfig);
+      this.viteCache = await viteBuild(viteConfig);
 
       const jsFiles = glob
         .sync(path.join(this.config.outDir, '**/*.js').replace(/\\/g, '/'))
@@ -182,7 +183,7 @@ export class ViteJasmineRunner extends EventEmitter {
     const server = await this.httpServerManager.startServer();
     this.webSocketManager = new WebSocketManager(server, this.multiReporter);
 
-    this.hmrManager = new HmrManager(this.config, this.viteConfigBuilder);
+    this.hmrManager = new HmrManager(this.config, this.viteConfigBuilder, this.viteCache);
     this.webSocketManager.enableHmr(this.hmrManager);
     await this.hmrManager.start();
 

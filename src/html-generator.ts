@@ -542,46 +542,6 @@ window.HMRClient = (function() {
 
     cleanSuite(topSuite.__suite);
 
-    // Clean recursion: examine children copy to avoid concurrent mutation issues
-    function cleanParent(parent) {
-      const childrenCopy = Array.from(parent.children || []);
-      for (const childWrapper of childrenCopy) {
-        const child = (childWrapper && childWrapper.__suite) ? childWrapper.__suite : childWrapper;
-        if (!child) continue;
-
-        // First, recursively clean the child's subtree
-        cleanParent(child);
-
-        // Remove specs from this child that match the file path
-        if (Array.isArray(child.specs) && child.specs.length > 0) {
-          // remove matching specs (safe to replace specs array)
-          child.specs = child.specs.filter(spec => !(spec && spec._filePath === filePath));
-        }
-
-        const isTagged = child._filePath === filePath;
-        const hasChildren = Array.isArray(child.children) && child.children.length > 0;
-        const hasSpecs = Array.isArray(child.specs) && child.specs.length > 0;
-
-        // If the subtree belongs to the file or is empty after cleaning, remove it from parent
-        if (isTagged || (!hasChildren && !hasSpecs)) {
-          const removed = removeChildFromParent(parent, childWrapper);
-          if (!removed) {
-            // last resort: attempt to remove by finding same object in parent.children
-            const idx = (parent.children || []).indexOf(childWrapper);
-            if (idx >= 0) {
-              console.warn('⚠️  removeChild unavailable — using splice fallback to remove suite child');
-              parent.children.splice(idx, 1);
-            } else {
-              // nothing we can do safely
-            }
-          }
-        }
-      }
-    }
-
-    cleanParent(topSuite.__suite);
-  }
-
   // Hot update a single module
   async function hotUpdateSpec(filePath, moduleExports) {
     detachFilePathSuites(filePath);
@@ -612,11 +572,8 @@ window.HMRClient = (function() {
       try {
         let newModule = null;
         if (update.content) {
-          const blob = new Blob([update.content], { type: 'application/javascript' });
-          const url = URL.createObjectURL(blob);
-          newModule = await import(url);
+          newModule = await import('/' + update.path);
           moduleRegistry.set(update.path, newModule);
-          URL.revokeObjectURL(url);
         }
 
         await hotUpdateSpec(update.path, newModule);

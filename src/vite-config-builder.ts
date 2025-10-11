@@ -6,31 +6,33 @@ import { norm } from './utils';
 import JSONCleaner from './json-cleaner';
 
 export class ViteConfigBuilder {
+  inputMap: Record<string, string> = {};
+
   constructor(private config: ViteJasmineConfig) {}
 
   private buildInputMap(srcFiles: string[], testFiles: string[]): Record<string, string> {
-    const input: Record<string, string> = {};
-
+    let inputMap: Record<string, string> = {};
     // Add source files
     srcFiles.forEach(file => {
       const relPath = path.relative(this.config.srcDir, file).replace(/\.(ts|js|mjs)$/, '');
       const key = relPath.replace(/[\/\\]/g, '_');
-      input[key] = file;
+      inputMap[key] = norm(file);
     });
 
     // Add test files
     testFiles.forEach(file => {
       const relPath = path.relative(this.config.testDir, file).replace(/\.spec\.(ts|js|mjs)$/, '');
       const key = `${relPath.replace(/[\/\\]/g, '_')}.spec`;
-      input[key] = file;
+      inputMap[key] = norm(file);
     });
 
-    return input;
+    return inputMap;
   }
 
   /** Full library build, preserves modules for proper relative imports */
   createViteConfig(srcFiles: string[], testFiles: string[]): InlineConfig {
-    const input = this.buildInputMap(srcFiles, testFiles); // keys already flattened
+    // For incremental rebuild:
+    this.inputMap = this.buildInputMap(srcFiles, testFiles);
 
     return {
       ...this.config.viteConfig,
@@ -40,12 +42,12 @@ export class ViteConfigBuilder {
         outDir: this.config.outDir,
         lib: false,
         rollupOptions: {
-          input,
+          input: this.inputMap,
           output: {
             format: 'es',
             entryFileNames: '[name].js', // flattened
             chunkFileNames: '[name]-[hash].js',
-            preserveModules: false,      // important: flatten everything
+            preserveModules: true,      // important: flatten everything
           },
           preserveEntrySignatures: 'strict',
         },
@@ -62,25 +64,10 @@ export class ViteConfigBuilder {
   }
 
   /** Incremental or partial rebuild, flattens output file names */
-  createViteConfigForFiles(changedFiles: string[], viteCache: any): InlineConfig {
-    const input: Record<string, string> = {};
-
-    changedFiles.forEach((file) => {
-      let key: string;
-
-      if (file.startsWith(this.config.srcDir)) {
-        const rel = path.relative(this.config.srcDir, file).replace(/\.(ts|js|mjs)$/, '');
-        key = rel.replace(/[\/\\]/g, '_');
-      } else if (file.startsWith(this.config.testDir)) {
-        const rel = path.relative(this.config.testDir, file).replace(/\.spec\.(ts|js|mjs)$/, '');
-        key = `${rel.replace(/[\/\\]/g, '_')}.spec`;
-      } else {
-        return;
-      }
-
-      input[key] = file;
-    });
-
+  createViteConfigForFiles(srcFiles: string[], testFiles: string[], viteCache: any): InlineConfig {
+    const input = this.buildInputMap(srcFiles, testFiles); // keys already flattened
+    this.inputMap = { ...this.inputMap, ...input };
+    
     return {
       ...this.config.viteConfig,
       root: process.cwd(),
@@ -89,28 +76,28 @@ export class ViteConfigBuilder {
         outDir: this.config.outDir,
         lib: false,
         rollupOptions: {
-          input,
+          input: this.inputMap,
+          preserveEntrySignatures: 'allow-extension',
           output: {
             format: 'es',
-            entryFileNames: '[name].js',  // flattened
-            chunkFileNames: '[name]-[hash].js',
-            preserveModules: false,       // no folder structure
+            entryFileNames: ({ name }) => `${name.replace(/[\/\\]/g, '_')}.js`,
+            chunkFileNames: '[name].js',
+            preserveModules: true,
+            preserveModulesRoot: this.config.srcDir
           },
-          preserveEntrySignatures: 'strict',
-          cache: viteCache
+          cache: viteCache,
         },
-        sourcemap: this.config.viteBuildOptions?.sourcemap ?? true,
-        target: this.config.viteBuildOptions?.target ?? 'es2022',
-        minify: this.config.viteBuildOptions?.minify ?? false,
+        sourcemap: true,
+        target: 'es2022',
+        minify: false,
         emptyOutDir: false,
       },
       resolve: { alias: this.createPathAliases() },
-      esbuild: { target: 'es2022', keepNames: false },
+      esbuild: { target: 'es2022', keepNames: false, treeShaking: false },
       define: { 'process.env.NODE_ENV': '"test"' },
-      logLevel: 'warn'
+      logLevel: 'warn',
     };
   }
-
 
   createPathAliases(): Record<string, string> {
     const aliases: Record<string, string> = {};
