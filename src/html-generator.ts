@@ -425,13 +425,9 @@ window.HMRClient = (function() {
 
   // Attach file path to newly created suites recursively
   async function attachFilePathToSuites(filePath, moduleExports) {
-    const topSuite = env.topSuite();
+    const topSuite = env.topSuite().__suite;
     if (!topSuite) return;
 
-    // Trigger module test definitions
-    if (typeof moduleExports?.defineTests === 'function') {
-        moduleExports.defineTests();
-    }
 
     // Walk all suites recursively and attach _filePath if missing
     function tagSuites(suite) {
@@ -457,7 +453,7 @@ window.HMRClient = (function() {
         // Recurse children
         const children = suite.children || [];
         for (const ch of children) {
-            const real = ch.__suite || ch;
+            const real = ch;
             tagSuites(real);
         }
     }
@@ -466,7 +462,7 @@ window.HMRClient = (function() {
   }
 
   function detachFilePathSuites(filePath) {
-    const topSuite = env.topSuite();
+    const topSuite = env.topSuite().__suite;
     if (!topSuite) return;
 
     function cleanSuite(suite) {
@@ -477,15 +473,14 @@ window.HMRClient = (function() {
       for (const childWrapper of suite.children) {
         if (!childWrapper) continue;
 
-        const child = childWrapper.__suite || childWrapper;
+        const child = childWrapper;
 
         if (child._filePath === filePath) {
-          // Just skip this one entirely
+          // Recursively clean nested suites
+          cleanSuite(child);
           continue;
         }
 
-        // Recursively clean nested suites
-        cleanSuite(child);
         keep.push(childWrapper);
       }
 
@@ -500,47 +495,8 @@ window.HMRClient = (function() {
     }
 
     // Clean starting from top suite’s real instance
-    cleanSuite(topSuite.__suite);
+    cleanSuite(topSuite);
   }
-
-  // Detach all suites/children that belong to a file
-  function detachFilePathSuites(filePath) {
-      const topSuite = env.topSuite();
-      if (!topSuite) return;
-
-      function cleanSuite(suite) {
-        if (!suite) return;
-
-        const children = suite.children || [];
-        const keep = [];
-
-        for (const childWrapper of children) {
-            if (!childWrapper) continue;
-
-            const child = childWrapper.__suite || childWrapper;
-
-            if (child._filePath === filePath) {
-                // Remove all nested children first
-                if (typeof child.removeChildren === 'function') {
-                    child.removeChildren();
-                }
-                // Drop this suite completely (do not add to keep)
-            } else {
-                // Recurse into nested suites
-                cleanSuite(child);
-                keep.push(childWrapper); // keep the original wrapper
-            }
-        }
-
-        // Fully clear and re-add remaining children
-        if (typeof suite.removeChildren === 'function' && typeof suite.addChild === 'function') {
-            suite.removeChildren();
-            keep.forEach(c => suite.addChild(c));
-        }
-      }
-
-
-    cleanSuite(topSuite.__suite);
 
   // Hot update a single module
   async function hotUpdateSpec(filePath, moduleExports) {
@@ -572,7 +528,7 @@ window.HMRClient = (function() {
       try {
         let newModule = null;
         if (update.content) {
-          newModule = await import('/' + update.path);
+          newModule = await import('/' + update.path + \`?t=\${Date.now()}\`);
           moduleRegistry.set(update.path, newModule);
         }
 

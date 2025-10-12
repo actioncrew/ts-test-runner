@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import http, { createServer } from 'http';
 import { ViteJasmineConfig } from './vite-jasmine-config';
-import { fileURLToPath } from 'url';
+import { fileURLToPath, parse } from 'url';
 import { extname } from 'path';
 import { norm } from './utils';
 
@@ -20,9 +20,13 @@ export class HttpServerManager {
     const vendorDir = norm(path.join(__dirname, '../node_modules'));
     
     this.server = createServer((req, res) => {
-      let filePath = req.url === '/' ? '/index.html' : req.url!;
-      filePath = decodeURIComponent(filePath);
+      let { pathname } = parse(req.url === '/' ? '/index.html' : req.url!, true);
+      const filePath = decodeURIComponent(pathname!);
 
+      res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+      res.setHeader("Pragma", "no-cache");
+      res.setHeader("Expires", "0");
+      
       // Handle CORS preflight requests
       if (req.method === 'OPTIONS') {
         res.writeHead(200, {
