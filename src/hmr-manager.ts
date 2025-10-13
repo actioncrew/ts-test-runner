@@ -57,6 +57,10 @@ export class HmrManager extends EventEmitter {
   private directChanges: Set<string> = new Set();
   private allFiles: string[] = [];
 
+  // ✅ FIX: Add atomic operation queue
+  private operationQueue: Promise<void> = Promise.resolve();
+  private rebuildPromise: Promise<void> | null = null;
+
   private fileFilter: FileFilter = {
     include: [],
     exclude: ['**/node_modules/**', '**/.git/**', '**/dist/**', '**/coverage/**'],
@@ -239,13 +243,12 @@ export class HmrManager extends EventEmitter {
    * Rebuilds the dependency graph entry for the given files
    */
   private async buildDependencyGraph(files: string[]): Promise<void> {
-    for (const file of files) {
+    // ✅ FIX: Filter out non-existent files before processing
+    const existingFiles = files.filter(fs.existsSync);
+    
+    for (const file of existingFiles) {
       const normalizedFile = norm(file);
-      if (!fs.existsSync(file)) {
-        this.dependencyGraph.delete(normalizedFile);
-        continue;
-      }
-
+      
       const oldDeps = this.dependencyGraph.get(normalizedFile);
 
       if (oldDeps) {
@@ -267,6 +270,11 @@ export class HmrManager extends EventEmitter {
   }
 
   private async extractDependencies(filePath: string): Promise<Set<string>> {
+    // ✅ FIX: Skip if file doesn't exist
+    if (!fs.existsSync(filePath)) {
+      return new Set();
+    }
+    
     const deps = new Set<string>();
     try {
       const content = fs.readFileSync(filePath, 'utf-8');
@@ -289,6 +297,10 @@ export class HmrManager extends EventEmitter {
   }
 
   private resolveImport(fromFile: string, importPath: string): string | null {
+    if (!fs.existsSync(fromFile)) {
+      return null;
+    }
+    
     if (!importPath.startsWith('.') && !importPath.startsWith('/')) {
       const aliasResolved = this.resolvePathAlias(importPath);
       return aliasResolved || null;
@@ -332,7 +344,11 @@ export class HmrManager extends EventEmitter {
   private getFilesToRebuild(changedFile: string): Set<string> {
     const filesToRebuild = new Set<string>();
 
-    if (this.rebuildMode === 'all') return new Set(this.allFiles);
+    if (this.rebuildMode === 'all') {
+      // ✅ FIX: Only include existing files in "all" mode
+      this.allFiles.filter(fs.existsSync).forEach(f => filesToRebuild.add(f));
+      return filesToRebuild;
+    }
 
     const queue = [norm(changedFile)];
     const visited = new Set<string>();
@@ -342,10 +358,21 @@ export class HmrManager extends EventEmitter {
       if (visited.has(current)) continue;
 
       visited.add(current);
-      filesToRebuild.add(current);
+      
+      // ✅ FIX: Only add to rebuild set if file exists
+      if (fs.existsSync(current)) {
+        filesToRebuild.add(current);
+      }
 
       const dependents = this.reverseDependencyGraph.get(current);
-      if (dependents) dependents.forEach(d => queue.push(d));
+      if (dependents) {
+        dependents.forEach(d => {
+          // ✅ FIX: Only queue dependents that exist
+          if (fs.existsSync(d)) {
+            queue.push(d);
+          }
+        });
+      }
     }
 
     return filesToRebuild;
@@ -356,7 +383,7 @@ export class HmrManager extends EventEmitter {
    */
   private getAffectedTests(sourceFile: string): string[] {
     const allDependents = this.getFilesToRebuild(sourceFile);
-    return Array.from(allDependents).filter(f => this.isTestFile(f));
+    return Array.from(allDependents).filter(f => this.isTestFile(f) && fs.existsSync(f));
   }
 
   async start(): Promise<void> {
@@ -404,200 +431,335 @@ export class HmrManager extends EventEmitter {
   }
 
   private async handleFileAdd(filePath: string): Promise<void> {
-    filePath = norm(filePath);
-    if (!this.allFiles.includes(filePath)) {
-      this.allFiles.push(filePath);
-      
-      const fileType = this.isTestFile(filePath) ? 'test' : 
-                      this.isSourceFile(filePath) ? 'source' : 'unknown';
-      const output = norm(this.isTestFile(filePath) ? path.relative(this.config.testDir, filePath) : path.relative(this.config.srcDir, filePath)); 
-      console.log(`➕ ${capitalize(fileType)} file added: ${output}`);
-      
-      await this.buildDependencyGraph([filePath]);
-      this.queueRebuild(filePath, 'add');
-    }
+    // ✅ FIX: Use operation queue to prevent race conditions
+    this.operationQueue = this.operationQueue.then(async () => {
+      filePath = norm(filePath);
+      if (!this.allFiles.includes(filePath)) {
+        this.allFiles.push(filePath);
+        
+        const fileType = this.isTestFile(filePath) ? 'test' : 
+                        this.isSourceFile(filePath) ? 'source' : 'unknown';
+        const output = norm(this.isTestFile(filePath) ? path.relative(this.config.testDir, filePath) : path.relative(this.config.srcDir, filePath)); 
+        console.log(`➕ ${capitalize(fileType)} file added: ${output}`);
+        
+        await this.buildDependencyGraph([filePath]);
+        this.queueRebuild(filePath, 'add');
+      }
+    }).catch(error => {
+      console.error('Error in handleFileAdd:', error);
+    });
+    
+    await this.operationQueue;
   }
 
-  private handleFileRemove(filePath: string): void {
-    filePath = norm(filePath);
-    const affectedFiles = new Set<string>();
-    const dependents = this.reverseDependencyGraph.get(filePath);
-    dependents?.forEach(d => affectedFiles.add(d));
+  private async handleFileRemove(filePath: string): Promise<void> {
+    // ✅ FIX: Use operation queue for atomic file removal
+    this.operationQueue = this.operationQueue.then(async () => {
+      filePath = norm(filePath);
+      
+      this.viteConfigBuilder.removeFromInputMap(filePath);
 
-    this.allFiles = this.allFiles.filter(f => f !== filePath);
-    this.dependencyGraph.delete(filePath);
-    this.reverseDependencyGraph.delete(filePath);
+      // ✅ CRITICAL: Remove from rebuild queue immediately to prevent build errors
+      this.rebuildQueue.delete(filePath);
+      this.directChanges.delete(filePath);
+      
+      const affectedFiles = new Set<string>();
+      const dependents = this.reverseDependencyGraph.get(filePath);
+      dependents?.forEach(d => {
+        if (fs.existsSync(d)) {
+          affectedFiles.add(d);
+        }
+      });
 
-    for (const deps of this.dependencyGraph.values()) deps.delete(filePath);
-    for (const dep of this.reverseDependencyGraph.values()) dep.delete(filePath);
+      this.allFiles = this.allFiles.filter(f => f !== filePath);
+      this.dependencyGraph.delete(filePath);
+      this.reverseDependencyGraph.delete(filePath);
 
-    const fileType = this.isTestFile(filePath) ? 'test' : 
-                    this.isSourceFile(filePath) ? 'source' : 'unknown';
-    let output = norm(this.isTestFile(filePath) ? path.relative(this.config.testDir, filePath) : path.relative(this.config.srcDir, filePath)); 
-    console.log(`➖ ${capitalize(fileType)} file removed: ${output}`);
+      for (const deps of this.dependencyGraph.values()) deps.delete(filePath);
+      for (const dep of this.reverseDependencyGraph.values()) dep.delete(filePath);
 
-    // Determine update strategy
-    const strategy = this.determineUpdateStrategy([filePath], 'unlink');
+      const fileType = this.isTestFile(filePath) ? 'test' : 
+                      this.isSourceFile(filePath) ? 'source' : 'unknown';
+      let output = norm(this.isTestFile(filePath) ? path.relative(this.config.testDir, filePath) : path.relative(this.config.srcDir, filePath)); 
+      console.log(`➖ ${capitalize(fileType)} file removed: ${output}`);
 
-    output = norm(path.join(this.config.outDir, this.getOutputName(filePath)));
+      // Determine update strategy
+      const strategy = this.determineUpdateStrategy([filePath], 'unlink');
 
-    if(fs.existsSync(output)) {
-      fs.rmSync(output);
-      fs.rmSync(output.replace(/\.js$/, '.js.map'));
-    }
+      output = norm(path.join(this.config.outDir, this.getOutputName(filePath)));
 
-    this.emit('hmr:update', {
-      type: strategy.type,
-      path: this.getOutputName(filePath),
-      timestamp: Date.now(),
-      affectedTests: this.isSourceFile(filePath) ? Array.from(affectedFiles).filter(f => this.isTestFile(f)) : undefined,
-      reason: strategy.reason
+      if (fs.existsSync(output)) fs.rmSync(output);
+      const map = output.replace(/\.js$/, '.js.map');
+      if (fs.existsSync(map)) fs.rmSync(map);
+    
+      this.emit('hmr:update', {
+        type: strategy.type,
+        path: this.getOutputName(filePath),
+        timestamp: Date.now(),
+        affectedTests: this.isSourceFile(filePath) ? Array.from(affectedFiles).filter(f => this.isTestFile(f)) : undefined,
+        reason: strategy.reason
+      });
+
+      if (this.rebuildMode === 'selective' && affectedFiles.size > 0) {
+        affectedFiles.forEach(f => this.queueRebuild(f, 'change'));
+      }
+    }).catch(error => {
+      console.error('Error in handleFileRemove:', error);
     });
-
-    if (this.rebuildMode === 'selective' && affectedFiles.size > 0) {
-      affectedFiles.forEach(f => this.queueRebuild(f, 'change'));
-    }
+    
+    await this.operationQueue;
   }
 
   private async handleDirectoryAdd(dirPath: string): Promise<void> {
-    dirPath = norm(dirPath);
-    const dirType = dirPath.startsWith(this.config.testDir) ? 'test': 'source';
-    const output = norm(dirPath.startsWith(this.config.testDir) ? path.relative(this.config.testDir, dirPath) : path.relative(this.config.srcDir, dirPath));
-    console.log(`📁 ${capitalize(dirType)} directory added: ${output}`);
-    
-    const defaultExtensions = this.fileFilter.extensions!.join(',');
-    const pattern = path.join(dirPath, `**/*{${defaultExtensions}}`);
-    const newFiles = glob.sync(pattern, { absolute: true, ignore: ['**/node_modules/**'] })
-      .filter(f => this.matchesFilter(f));
+    // ✅ FIX: Use operation queue
+    this.operationQueue = this.operationQueue.then(async () => {
+      dirPath = norm(dirPath);
+      const dirType = dirPath.startsWith(this.config.testDir) ? 'test': 'source';
+      const output = norm(dirPath.startsWith(this.config.testDir) ? path.relative(this.config.testDir, dirPath) : path.relative(this.config.srcDir, dirPath));
+      console.log(`📁 ${capitalize(dirType)} directory added: ${output}`);
+      
+      const defaultExtensions = this.fileFilter.extensions!.join(',');
+      const pattern = path.join(dirPath, `**/*{${defaultExtensions}}`);
+      const newFiles = glob.sync(pattern, { absolute: true, ignore: ['**/node_modules/**'] })
+        .filter(f => this.matchesFilter(f));
 
-    const filesToProcess: string[] = [];
-    for (const file of newFiles) {
-      const normalized = norm(file);
-      if (!this.allFiles.includes(normalized)) {
-        this.allFiles.push(normalized);
-        filesToProcess.push(normalized);
+      const filesToProcess: string[] = [];
+      for (const file of newFiles) {
+        const normalized = norm(file);
+        if (!this.allFiles.includes(normalized)) {
+          this.allFiles.push(normalized);
+          filesToProcess.push(normalized);
+        }
       }
-    }
 
-    if (filesToProcess.length) {
-      console.log(`📦 Found ${filesToProcess.length} ${dirType} files in new directory`);
-      await this.buildDependencyGraph(filesToProcess);
+      if (filesToProcess.length) {
+        console.log(`📦 Found ${filesToProcess.length} ${dirType} files in new directory`);
+        await this.buildDependencyGraph(filesToProcess);
+        
+        // Directory additions don't require full reload
+        const strategy = this.determineUpdateStrategy(filesToProcess, 'addDir');
+        
+        this.emit('hmr:update', {
+          type: strategy.type,
+          path: output,
+          timestamp: Date.now(),
+          reason: strategy.reason
+        });
+        
+        filesToProcess.forEach(f => this.queueRebuild(f, 'add'));
+      }
+    }).catch(error => {
+      console.error('Error in handleDirectoryAdd:', error);
+    });
+    
+    await this.operationQueue;
+  }
+
+  private async handleDirectoryRemove(dirPath: string): Promise<void> {
+    // ✅ FIX: Use operation queue for atomic directory removal
+    this.operationQueue = this.operationQueue.then(async () => {
+      dirPath = norm(dirPath);
+
+      const dirType = dirPath.startsWith(this.config.testDir) ? 'test': 'source';
+      const output = norm(dirPath.startsWith(this.config.testDir) ? path.relative(this.config.testDir, dirPath) : path.relative(this.config.srcDir, dirPath));
+      console.log(`📁 ${capitalize(dirType)} directory removed: ${output}`);
       
-      // Directory additions don't require full reload
-      const strategy = this.determineUpdateStrategy(filesToProcess, 'addDir');
+      const removedFiles = this.allFiles.filter(f => f.startsWith(dirPath + path.sep) || f === dirPath);
+      const affectedFiles = new Set<string>();
+
+      // ✅ Remove all files in directory from rebuild queues to prevent build errors
+      for (const file of removedFiles) {
+        this.rebuildQueue.delete(file);
+        this.directChanges.delete(file);
+        
+        const dependents = this.reverseDependencyGraph.get(file);
+        dependents?.forEach(d => {
+          if (fs.existsSync(d)) {
+            affectedFiles.add(d);
+          }
+        });
+
+        this.dependencyGraph.delete(file);
+        this.reverseDependencyGraph.delete(file);
+
+        for (const deps of this.dependencyGraph.values()) deps.delete(file);
+        for (const dep of this.reverseDependencyGraph.values()) dep.delete(file);
+      }
       
+      // Remove all files at once (more efficient)
+      this.allFiles = this.allFiles.filter(f => !removedFiles.includes(f));
+
+      // Determine strategy based on what was removed
+      const strategy = this.determineUpdateStrategy(removedFiles, 'unlinkDir');
+      this.viteConfigBuilder.removeMultipleFromInputMap(removedFiles);
+    
       this.emit('hmr:update', {
         type: strategy.type,
         path: output,
         timestamp: Date.now(),
+        affectedTests: Array.from(affectedFiles).filter(f => this.isTestFile(f)),
         reason: strategy.reason
       });
-      
-      filesToProcess.forEach(f => this.queueRebuild(f, 'add'));
-    }
-  }
 
-  private async handleDirectoryRemove(dirPath: string): Promise<void> {
-    dirPath = norm(dirPath);
-    const dirType = dirPath.startsWith(this.config.testDir) ? 'test': 'source';
-    const output = norm(dirPath.startsWith(this.config.testDir) ? path.relative(this.config.testDir, dirPath) : path.relative(this.config.srcDir, dirPath));
-    console.log(`📁 ${capitalize(dirType)} directory removed: ${output}`);
-    
-    const removedFiles = this.allFiles.filter(f => f.startsWith(dirPath + path.sep) || f === dirPath);
-    const affectedFiles = new Set<string>();
-
-    for (const file of removedFiles) {
-      const normalized = norm(file);
-      const dependents = this.reverseDependencyGraph.get(normalized);
-      dependents?.forEach(d => affectedFiles.add(d));
-
-      this.allFiles = this.allFiles.filter(f => f !== normalized);
-      this.dependencyGraph.delete(normalized);
-      this.reverseDependencyGraph.delete(normalized);
-
-      for (const deps of this.dependencyGraph.values()) deps.delete(normalized);
-      for (const dep of this.reverseDependencyGraph.values()) dep.delete(normalized);
-    }
-
-    // Determine strategy based on what was removed
-    const strategy = this.determineUpdateStrategy(removedFiles, 'unlinkDir');
-
-    this.emit('hmr:update', {
-      type: strategy.type,
-      path: output,
-      timestamp: Date.now(),
-      affectedTests: Array.from(affectedFiles).filter(f => this.isTestFile(f)),
-      reason: strategy.reason
+      if (this.rebuildMode === 'selective' && affectedFiles.size > 0) {
+        affectedFiles.forEach(f => this.queueRebuild(f, 'change'));
+      }
+    }).catch(error => {
+      console.error('Error in handleDirectoryRemove:', error);
     });
-
-    if (this.rebuildMode === 'selective' && affectedFiles.size > 0) {
-      affectedFiles.forEach(f => this.queueRebuild(f, 'change'));
-    }
+    
+    await this.operationQueue;
   }
 
-  private queueRebuild(filePath: string, changeType: 'add' | 'change' | 'unlink' = 'change') {
+  private async queueRebuild(filePath: string, changeType: 'add' | 'change' | 'unlink' = 'change') {
     const normalized = norm(filePath);
+    
+    // ✅ FIX: Skip if file doesn't exist (for unlink cases)
+    if (changeType !== 'unlink' && !fs.existsSync(normalized)) {
+      console.warn(`⚠️ Skipping rebuild for non-existent file: ${normalized}`);
+      return;
+    }
+    
     this.directChanges.add(normalized);
     this.rebuildQueue.add(normalized);
 
-    if (!this.isRebuilding) this.rebuildAll();
+    // ✅ FIX: Wait for existing rebuild to complete before starting new one
+    if (this.rebuildPromise) {
+      await this.rebuildPromise;
+    }
+
+    if (!this.isRebuilding) {
+      this.isRebuilding = true;
+      this.rebuildPromise = this.rebuildAll().catch(error => {
+        console.error('❌ Rebuild failed:', error);
+        this.emit('hmr:error', error);
+      }).finally(() => {
+        this.isRebuilding = false;
+        this.rebuildPromise = null;
+      });
+    }
+    
+    await this.rebuildPromise;
   }
 
   private async rebuildAll() {
-    this.isRebuilding = true;
-
     try {
       while (this.rebuildQueue.size > 0) {
         const startTime = Date.now();
 
-        const changedFiles = Array.from(this.rebuildQueue);
+        // ✅ FIX: Filter out deleted files from ALL queues before processing
+        const changedFiles = Array.from(this.rebuildQueue).filter(file => {
+          if (!fs.existsSync(file)) {
+            console.warn(`⚠️ Skipping deleted file from rebuild queue: ${file}`);
+            return false;
+          }
+          return true;
+        });
+
         this.rebuildQueue.clear();
-        const directChangedFiles = Array.from(this.directChanges);
+
+        const directChangedFiles = Array.from(this.directChanges).filter(file => {
+          if (!fs.existsSync(file)) {
+            console.warn(`⚠️ Skipping deleted file from direct changes: ${file}`);
+            return false;
+          }
+          return true;
+        });
         this.directChanges.clear();
+
+        if (changedFiles.length === 0) {
+          console.log('⚠️ All queued files were deleted, skipping rebuild');
+          continue;
+        }
 
         const filesToRebuild = new Set<string>();
 
         for (const file of changedFiles) {
           const deps = this.getFilesToRebuild(file);
-          deps.forEach(f => filesToRebuild.add(f));
+          deps.forEach(f => {
+            // ✅ FIX: Double verify files to rebuild still exist
+            if (fs.existsSync(f)) {
+              filesToRebuild.add(f);
+            }
+          });
         }
 
         const rebuiltFiles = Array.from(filesToRebuild);
 
-        // Determine update strategy
-        const strategy = this.determineUpdateStrategy(directChangedFiles, 'change');
-        
-        // Collect affected tests for source changes
-        const affectedTests = directChangedFiles
-          .filter(f => this.isSourceFile(f))
-          .flatMap(f => this.getAffectedTests(f));
+        if (rebuiltFiles.length === 0) {
+          console.log('⚠️ No valid files to rebuild after filtering');
+          continue;
+        }
 
-        const sourceChanges = directChangedFiles.filter(f => this.isSourceFile(f));
-        const testChanges = directChangedFiles.filter(f => this.isTestFile(f));
+        // ✅ CRITICAL FIX: Filter source and test files to ONLY include existing files
+        const validSourceFiles = rebuiltFiles.filter(f => this.isSourceFile(f) && fs.existsSync(f));
+        const validTestFiles = rebuiltFiles.filter(f => this.isTestFile(f) && fs.existsSync(f));
 
         console.log(
-          `📦 Changed: ${directChangedFiles.length} files ` +
-          `(${sourceChanges.length} source, ${testChanges.length} test) → ` +
-          `Rebuilding: ${rebuiltFiles.length} files (${strategy.type})`
+          `📦 Changed: ${directChangedFiles.length} files → ` +
+          `Rebuilding: ${rebuiltFiles.length} files (${validSourceFiles.length} source, ${validTestFiles.length} test)`
         );
+
+        // Only proceed if we have valid files to build
+        if (validSourceFiles.length === 0 && validTestFiles.length === 0) {
+          console.log('⚠️ No valid source or test files to build after filtering');
+          continue;
+        }
 
         await this.buildDependencyGraph(rebuiltFiles);
 
-        const viteConfig = this.viteConfigBuilder.createViteConfigForFiles(rebuiltFiles.filter(f => this.isSourceFile(f)), rebuiltFiles.filter(f => this.isTestFile(f)), this.viteCache);
+        // ✅ FIX: Pass ONLY valid existing files to Vite config builder
+        const viteConfig = this.viteConfigBuilder.createViteConfigForFiles(
+          validSourceFiles,
+          validTestFiles,
+          this.viteCache
+        );
+
         const build = await getViteBuild();
         const startBuildTime = Date.now();
-        const result = await build(viteConfig);
-        this.viteCache = result;
 
+        try {
+          const result = await build(viteConfig);
+          this.viteCache = result;
+        } catch (buildError: any) {
+          console.error('❌ Vite build failed:', buildError);
+          // Check if it's due to missing entry files
+          if (buildError.code === 'UNRESOLVED_ENTRY') {
+            console.log('🔄 Retrying build with filtered entry points...');
+            // Retry with additional filtering
+            const finalSourceFiles = validSourceFiles.filter(fs.existsSync);
+            const finalTestFiles = validTestFiles.filter(fs.existsSync);
+
+            if (finalSourceFiles.length === 0 && finalTestFiles.length === 0) {
+              console.log('⚠️ All entry points were deleted, skipping build');
+              continue;
+            }
+
+            const retryConfig = this.viteConfigBuilder.createViteConfigForFiles(
+              finalSourceFiles,
+              finalTestFiles,
+              this.viteCache
+            );
+            const result = await build(retryConfig);
+            this.viteCache = result;
+          } else {
+            throw buildError;
+          }
+        }
+
+        // Emit updates for successfully built files
         for (const file of rebuiltFiles) {
           const relative = this.getOutputName(file);
           const outputPath = path.join(this.config.outDir, relative);
 
-          // Read directly from outDir (not from result)
           if (fs.existsSync(outputPath)) {
             const content = fs.readFileSync(outputPath, 'utf-8');
 
-            // ✅ Emit update so browser HMR can pick it up
+            const strategy = this.determineUpdateStrategy(directChangedFiles, 'change');
+            const affectedTests = directChangedFiles
+              .filter(f => this.isSourceFile(f))
+              .flatMap(f => this.getAffectedTests(f));
+
             this.emit('hmr:update', {
               type: strategy.type,
               path: relative,
@@ -606,21 +768,17 @@ export class HmrManager extends EventEmitter {
               affectedTests: affectedTests.length > 0 ? affectedTests : undefined,
               reason: strategy.reason
             });
-          } else {
-            console.warn(`⚠️ Output not found for ${relative} (expected at ${outputPath})`);
           }
         }
 
-        console.log(
-          `📦 Vite rebuild wrote ${rebuiltFiles.length} files to ${this.config.outDir} in ${
-            Date.now() - startBuildTime
-          }ms`
-        );
+        console.log(`📦 Vite rebuild completed in ${Date.now() - startBuildTime}ms`);
 
         const duration = Date.now() - startTime;
+        const sourceChanges = directChangedFiles.filter(f => this.isSourceFile(f));
+        const testChanges = directChangedFiles.filter(f => this.isTestFile(f));
         const updateType = sourceChanges.length > 0 ? 'source-change' :
-                          testChanges.length > 0 ? 'test-only' : 'full';
-        
+          testChanges.length > 0 ? 'test-only' : 'full';
+
         this.emit('hmr:rebuild', {
           changedFiles: directChangedFiles,
           rebuiltFiles,
@@ -628,14 +786,13 @@ export class HmrManager extends EventEmitter {
           timestamp: Date.now(),
           updateType
         } as RebuildStats);
-        
+
         console.log(`✅ Rebuild complete (${updateType}): ${rebuiltFiles.length} files in ${duration}ms`);
       }
     } catch (error) {
       console.error('❌ Rebuild failed:', error);
       this.emit('hmr:error', error);
-    } finally {
-      this.isRebuilding = false;
+      throw error;
     }
   }
 
