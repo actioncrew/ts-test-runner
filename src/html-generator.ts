@@ -662,6 +662,25 @@ window.HMRClient = (function() {
     env.addReporter(customReporter);
     console.log('📊 Custom reporter attached (reusable).');
 
+    // Reset the environment to allow re-execution
+    function resetEnvironment() {
+      // Reset all specs and suites
+      const resetNode = (node) => {
+        if (node.result) {
+          node.result = {
+            status: 'pending',
+            failedExpectations: [],
+            passedExpectations: []
+          };
+        }
+        if (node.children) {
+          node.children.forEach(resetNode);
+        }
+      };
+      
+      resetNode(env.topSuite());
+    }
+
     async function executeSpecsByIds(specIds) {
       // Prevent concurrent executions
       if (isExecuting) {
