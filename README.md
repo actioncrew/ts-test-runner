@@ -10,6 +10,7 @@ Run your Jasmine TypeScript tests in multiple environments: browsers, headless b
   - **Headless browsers** - same browser environments without UI (perfect for CI/CD)
   - **Node.js** - fastest execution for pure logic testing
 - Supports **code coverage** via Istanbul instrumentation
+- Supports **Hot Module Reload (HMR)** for instant test feedback
 
 ## Installation
 
@@ -124,6 +125,23 @@ Coverage reports are generated in the `coverage/` folder by default:
 ```bash
 npx ts-test-runner --coverage
 # → ./coverage/index.html
+```
+
+### Watch Mode
+
+When `--watch` is enabled:
+
+The runner watches your **source** and **test files** for changes. Modified files are recompiled and hot-reloaded into the running environment — no full reload required.
+
+Jasmine’s suite tree is automatically updated:
+- Removed specs are detached from the active suite.
+- Updated specs are re-imported and re-registered.
+- Only the affected tests are re-executed, preserving test context and speed.
+
+The system uses WebSocket-based updates to synchronize browser and Node test environments in real time. This allows you to iterate rapidly with instant feedback on every code change.
+
+```bash
+npx ts-test-runner --watch
 ```
 
 ## Project Structure
