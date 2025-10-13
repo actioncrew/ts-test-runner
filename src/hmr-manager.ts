@@ -7,6 +7,7 @@ import { capitalize, norm } from './utils';
 import { ViteConfigBuilder } from './vite-config-builder';
 import { glob } from 'glob';
 import picomatch from 'picomatch';
+import { FileDiscoveryService } from './file-discovery-service';
 
 // Dynamic import to avoid top-level await issues
 let viteBuild: any = null;
@@ -82,6 +83,7 @@ export class HmrManager extends EventEmitter {
   ];
 
   constructor(
+    private fileDiscovery: FileDiscoveryService,
     private config: ViteJasmineConfig,
     private viteConfigBuilder: ViteConfigBuilder,
     private viteCache: any = null,
@@ -412,22 +414,9 @@ export class HmrManager extends EventEmitter {
     this.watcher.on('unlinkDir', dirPath => this.handleDirectoryRemove(norm(dirPath)));
 
     this.watcher.on('ready', async () => {
-      await this.scanAllFiles();
-      await this.buildDependencyGraph(this.allFiles);
       console.log(`✅ HMR watching ${this.allFiles.length} files (mode: ${this.rebuildMode}, strategy: ${this.sourceChangeStrategy})`);
       this.emit('hmr:ready');
     });
-  }
-
-  private async scanAllFiles(): Promise<void> {
-    const defaultExtensions = this.fileFilter.extensions!.join(',');
-    const srcPattern = norm(path.join(this.config.srcDir, `**/*{${defaultExtensions}}`));
-    const testPattern = norm(path.join(this.config.testDir, `**/*{${defaultExtensions}}`));
-
-    const srcFiles = glob.sync(srcPattern, { absolute: true, ignore: ['**/node_modules/**'] }).map(file => norm(file));
-    const testFiles = glob.sync(testPattern, { absolute: true, ignore: ['**/node_modules/**'] }).map(file => norm(file));
-
-    this.allFiles = [...srcFiles, ...testFiles].filter(f => this.matchesFilter(f)).map(file => norm(file));
   }
 
   private async handleFileAdd(filePath: string): Promise<void> {
@@ -442,7 +431,6 @@ export class HmrManager extends EventEmitter {
         const output = norm(this.isTestFile(filePath) ? path.relative(this.config.testDir, filePath) : path.relative(this.config.srcDir, filePath)); 
         console.log(`➕ ${capitalize(fileType)} file added: ${output}`);
         
-        await this.buildDependencyGraph([filePath]);
         this.queueRebuild(filePath, 'add');
       }
     }).catch(error => {
@@ -486,7 +474,7 @@ export class HmrManager extends EventEmitter {
       // Determine update strategy
       const strategy = this.determineUpdateStrategy([filePath], 'unlink');
 
-      output = norm(path.join(this.config.outDir, this.getOutputName(filePath)));
+      output = norm(path.join(this.config.outDir, this.fileDiscovery.getOutputName(filePath)));
 
       if (fs.existsSync(output)) fs.rmSync(output);
       const map = output.replace(/\.js$/, '.js.map');
@@ -494,7 +482,7 @@ export class HmrManager extends EventEmitter {
     
       this.emit('hmr:update', {
         type: strategy.type,
-        path: this.getOutputName(filePath),
+        path: this.fileDiscovery.getOutputName(filePath),
         timestamp: Date.now(),
         affectedTests: this.isSourceFile(filePath) ? Array.from(affectedFiles).filter(f => this.isTestFile(f)) : undefined,
         reason: strategy.reason
@@ -534,7 +522,6 @@ export class HmrManager extends EventEmitter {
 
       if (filesToProcess.length) {
         console.log(`📦 Found ${filesToProcess.length} ${dirType} files in new directory`);
-        await this.buildDependencyGraph(filesToProcess);
         
         // Directory additions don't require full reload
         const strategy = this.determineUpdateStrategy(filesToProcess, 'addDir');
@@ -749,7 +736,7 @@ export class HmrManager extends EventEmitter {
 
         // Emit updates for successfully built files
         for (const file of rebuiltFiles) {
-          const relative = this.getOutputName(file);
+          const relative = this.fileDiscovery.getOutputName(file);
           const outputPath = path.join(this.config.outDir, relative);
 
           if (fs.existsSync(outputPath)) {
@@ -794,15 +781,6 @@ export class HmrManager extends EventEmitter {
       this.emit('hmr:error', error);
       throw error;
     }
-  }
-
-  private getOutputName(filePath: string): string {
-    const relative = filePath.startsWith(norm(this.config.testDir))
-      ? path.relative(this.config.testDir, filePath)
-      : path.relative(norm(this.config.srcDir), filePath);
-
-    const ext = path.extname(filePath);
-    return norm(relative).replace(ext, '.js').replace(/[\/\\]/g, '_');
   }
 
   getDependencyInfo(filePath: string) {

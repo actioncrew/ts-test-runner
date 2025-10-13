@@ -3,11 +3,12 @@ import * as path from 'path';
 import { ViteJasmineConfig } from "./vite-jasmine-config";
 import { norm } from './utils';
 import { fileURLToPath } from 'url';
+import { FileDiscoveryService } from './file-discovery-service';
 
 export class HtmlGenerator {
-  constructor(private config: ViteJasmineConfig) { }
+  constructor(private fileDiscovery: FileDiscoveryService, private config: ViteJasmineConfig) { }
 
-  generateHtmlFile(): void {
+  async generateHtmlFile() {
     const htmlDir = this.config.outDir;
     if (!fs.existsSync(htmlDir)) {
       fs.mkdirSync(htmlDir, { recursive: true });
@@ -49,26 +50,11 @@ export class HtmlGenerator {
     console.log('📄 Generated test page:', norm(path.relative(this.config.outDir, htmlPath)));
   }
 
-  generateHtmlFileWithHmr(): void {
+  async generateHtmlFileWithHmr() {
     const htmlDir = this.config.outDir;
     if (!fs.existsSync(htmlDir)) {
       fs.mkdirSync(htmlDir, { recursive: true });
     }
-
-    const builtFiles = fs.readdirSync(htmlDir)
-      .filter(f => f.endsWith('.js'))
-      .sort();
-
-    if (builtFiles.length === 0) {
-      console.warn('⚠️  No JS files found for HTML generation.');
-      return;
-    }
-
-    const sourceFiles = builtFiles.filter(f => !f.endsWith('.spec.js'));
-    const specFiles = builtFiles.filter(f => f.endsWith('.spec.js'));
-    const imports = [...sourceFiles, ...specFiles]
-      .map(f => `import "./${f}";`)
-      .join('\n        ');
 
     const __filename = norm(fileURLToPath(import.meta.url));
     const __dirname = norm(path.dirname(__filename));
@@ -85,7 +71,7 @@ export class HtmlGenerator {
       faviconTag = `<link rel="icon" href="favicon.ico" type="image/x-icon" />`;
     }
 
-    const htmlContent = this.generateHtmlTemplateWithHmr(sourceFiles, specFiles, faviconTag);
+    const htmlContent = await this.generateHtmlTemplateWithHmr(faviconTag);
     const htmlPath = norm(path.join(htmlDir, 'index.html'));
     fs.writeFileSync(htmlPath, htmlContent);
     console.log('📄 Generated HMR-enabled test page:', norm(path.relative(this.config.outDir, htmlPath)));
@@ -119,7 +105,7 @@ export class HtmlGenerator {
 </html>`;
   }
 
-  private generateHtmlTemplateWithHmr(sourceFiles: string[], specFiles: string[], faviconTag: string) {
+  private async generateHtmlTemplateWithHmr(faviconTag: string) {    
     return `<!DOCTYPE html>
 <html>
 <head>
@@ -212,6 +198,33 @@ export class HtmlGenerator {
     } catch (e) {}
   }
 
+  // Wait for runner to be ready, then load all spec files
+  async function loadSpecs(srcFiles, specFiles) {
+    // Wait for HMRClient
+    while (!window.HMRClient) {
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+    
+    console.log('📦 Loading spec files dynamically...');
+    
+    // Load source files first
+    for (const file of srcFiles) {
+      await import('/' + file);
+    }
+    
+    // Then load spec files with file path tracking
+    for (const file of specFiles) {
+      const module = await import('/' + file);
+      
+      // Attach file path to suites after import
+      if (window.HMRClient && window.HMRClient.attachFilePathToSuites) {
+        await window.HMRClient.attachFilePathToSuites(file, module);
+      }
+    }
+    
+    console.log('✅ All specs loaded and tagged with file paths');
+  }
+
   const script = document.createElement('script');
   script.src = '/node_modules/jasmine-core/lib/jasmine-core/boot0.js';
   script.onload = () => {
@@ -220,45 +233,10 @@ export class HtmlGenerator {
     ${this.getHmrClientScript()}
     ${this.getRuntimeHelpersScript()}
 
-    // Store file list for dynamic loading
-    window.__specFiles__ = ${JSON.stringify(specFiles)};
-    window.__sourceFiles__ = ${JSON.stringify(sourceFiles)};
-    
-    // Wait for runner to be ready, then load all spec files
-    async function loadSpecs() {
-      // Wait for HMRClient
-      while (!window.HMRClient) {
-        await new Promise(resolve => setTimeout(resolve, 50));
-      }
-      
-      console.log('📦 Loading spec files dynamically...');
-      
-      // Load source files first
-      for (const file of window.__sourceFiles__) {
-        await import('/' + file);
-      }
-      
-      // Then load spec files with file path tracking
-      for (const file of window.__specFiles__) {
-        const module = await import('/' + file);
-        
-        // Attach file path to suites after import
-        if (window.HMRClient && window.HMRClient.attachFilePathToSuites) {
-          await window.HMRClient.attachFilePathToSuites(file, module);
-        }
-      }
-      
-      console.log('✅ All specs loaded and tagged with file paths');
-    }
-    
-    loadSpecs().catch(err => {
-      console.error('Failed to load specs:', err);
-    }).finally(() => {
-      // Add the WebSocket forwarder as a reporter
-      const forwarder = new WebSocketEventForwarder();
-      forwarder.connect();
-      jasmine.getEnv().addReporter(forwarder);  
-    });
+    // Add the WebSocket forwarder as a reporter
+    const forwarder = new WebSocketEventForwarder();
+    forwarder.connect();
+    jasmine.getEnv().addReporter(forwarder);  
   };
   document.head.appendChild(script);
 })();
@@ -284,13 +262,6 @@ function WebSocketEventForwarder() {
   this.connect = function() {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = protocol + '//' + window.location.host;
-    
-    if (!window.HMRClient) {
-      // Wait a bit and retry if HMRClient is not ready
-      console.log('⚡ Waiting for HMRClient...');
-      setTimeout(() => self.connect(), 50);
-      return;
-    }
 
     self.ws = new WebSocket(wsUrl);
 
@@ -509,6 +480,7 @@ window.HMRClient = (function() {
   async function handleMessage(message) {
     if (message.type === 'hmr:connected') {
       console.log('🔥 HMR enabled on server');
+      await loadSpecs(message.srcFiles, message.specFiles);
       return;
     }
 
@@ -524,7 +496,6 @@ window.HMRClient = (function() {
 
       console.log('🔥 Hot updating:', update.path);
 
-      
       try {
         let newModule = null;
         if (update.content) {

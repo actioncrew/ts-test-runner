@@ -53,7 +53,7 @@ export class ViteJasmineRunner extends EventEmitter {
 
     this.fileDiscovery = new FileDiscoveryService(this.config);
     this.viteConfigBuilder = new ViteConfigBuilder(this.config);
-    this.htmlGenerator = new HtmlGenerator(this.config);
+    this.htmlGenerator = new HtmlGenerator(this.fileDiscovery, this.config);
     this.nodeRunnerGenerator = new NodeTestRunnerGenerator(this.config);
     this.browserManager = new BrowserManager(this.config);
     this.httpServerManager = new HttpServerManager(this.config);
@@ -67,12 +67,12 @@ export class ViteJasmineRunner extends EventEmitter {
 
   async preprocess(): Promise<void> {
     try {
-      const { srcFiles, testFiles } = await this.fileDiscovery.discoverFiles();
-      if (testFiles.length === 0) {
+      const { srcFiles, specFiles } = await this.fileDiscovery.discoverSources();
+      if (specFiles.length === 0) {
         throw new Error('No test files found');
       }
 
-      const viteConfig = this.viteConfigBuilder.createViteConfig(srcFiles, testFiles);
+      const viteConfig = this.viteConfigBuilder.createViteConfig(srcFiles, specFiles);
       const input: Record<string, string> = {};
 
       srcFiles.forEach((file) => {
@@ -81,7 +81,7 @@ export class ViteJasmineRunner extends EventEmitter {
         input[key] = file;
       });
 
-      testFiles.forEach((file) => {
+      specFiles.forEach((file) => {
         const relPath = path.relative(this.config.testDir, file).replace(/\.spec\.(ts|js|mjs)$/, '');
         const key = `${relPath.replace(/[\/\\]/g, '_')}.spec`;
         input[key] = file;
@@ -109,9 +109,9 @@ export class ViteJasmineRunner extends EventEmitter {
 
       if (!(this.config.headless && this.config.browser === 'node')) {
         if (this.config.watch) {
-          this.htmlGenerator.generateHtmlFileWithHmr();
+          await this.htmlGenerator.generateHtmlFileWithHmr();
         } else {
-          this.htmlGenerator.generateHtmlFile();
+          await this.htmlGenerator.generateHtmlFile();
         }
       }
 
@@ -181,9 +181,10 @@ export class ViteJasmineRunner extends EventEmitter {
     console.log('🔥 Starting HMR file watcher...');
 
     const server = await this.httpServerManager.startServer();
-    this.webSocketManager = new WebSocketManager(server, this.multiReporter);
+    
+    this.webSocketManager = new WebSocketManager(this.fileDiscovery, this.config, server, this.multiReporter);
+    this.hmrManager = new HmrManager(this.fileDiscovery, this.config, this.viteConfigBuilder, this.viteCache);
 
-    this.hmrManager = new HmrManager(this.config, this.viteConfigBuilder, this.viteCache);
     this.webSocketManager.enableHmr(this.hmrManager);
     await this.hmrManager.start();
 
@@ -221,8 +222,7 @@ export class ViteJasmineRunner extends EventEmitter {
   private async runHeadlessBrowserMode(): Promise<void> {
     const server = await this.httpServerManager.startServer();
     await this.httpServerManager.waitForServerReady(`http://localhost:${this.config.port}/index.html`, 10000);
-
-    this.webSocketManager = new WebSocketManager(server, this.multiReporter);
+    this.webSocketManager = new WebSocketManager(this.fileDiscovery, this.config, server, this.multiReporter);
 
     let testSuccess = false;
     this.webSocketManager.on('testsCompleted', ({ success, coverage }) => {
@@ -261,7 +261,7 @@ export class ViteJasmineRunner extends EventEmitter {
   private async runHeadedBrowserMode(): Promise<void> {
     const server = await this.httpServerManager.startServer();
     let testsCompleted = false;
-    this.webSocketManager = new WebSocketManager(server, this.multiReporter);
+    this.webSocketManager = new WebSocketManager(this.fileDiscovery, this.config, server, this.multiReporter);
 
     console.log('📡 WebSocket server ready for real-time test reporting');
     console.log('⏹️  Press Ctrl+C to stop the server');

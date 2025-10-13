@@ -4,6 +4,10 @@ import http from 'http';
 import JSONCleaner from './json-cleaner';
 import { Reporter } from './multi-reporter';
 import { HmrManager, HmrUpdate } from './hmr-manager';
+import { FileDiscoveryService } from './file-discovery-service';
+import { ViteConfigBuilder } from './vite-config-builder';
+import { ViteJasmineConfig } from './vite-jasmine-config';
+import path from 'path';
 
 export class WebSocketManager extends EventEmitter {
   private wss: WebSocketServer | null = null;
@@ -11,7 +15,7 @@ export class WebSocketManager extends EventEmitter {
   private hmrManager: HmrManager | null = null;
   private hmrEnabled: boolean = false;
 
-  constructor(private server: http.Server, private reporter: Reporter) {
+  constructor(private fileDiscovery: FileDiscoveryService, private config: ViteJasmineConfig, private server: http.Server, private reporter: Reporter) {
     super();
     this.createWebSocketServer();
   }
@@ -19,17 +23,20 @@ export class WebSocketManager extends EventEmitter {
   private createWebSocketServer(): void {
     this.wss = new WebSocketServer({ server: this.server });
     
-    this.wss.on('connection', (ws: WebSocket) => {
+    this.wss.on('connection', async (ws: WebSocket) => {
       console.log('🔌 WebSocket client connected');
       this.wsClients.push(ws);
-      
       // Send HMR status on connection
       if (this.hmrEnabled) {
+        const files = await this.fileDiscovery.scanDir(this.config.outDir, '/**/*.js');
         this.sendToClient(ws, { 
           type: 'hmr:connected',
+          specFiles: files.filter(file => file.endsWith('.spec.js')).map(file => path.basename(file)).sort(),
+          srcFiles: files.filter(file => !file.endsWith('.spec.js') && file.endsWith('.js')).map(file => path.basename(file)).sort(),
           enabled: true 
         });
       }
+      
       
       const cleaner = new JSONCleaner();
       

@@ -8,7 +8,7 @@ const __dirname = path.dirname(__filename);
 
 const EXTERNALS = [
   'assert', 'async_hooks', 'buffer', 'child_process', 'cluster', 'console',
-  'constants', 'crypto', 'dgram', 'dns', 'domain', 'events', 'fs', 'http',
+  'constants', 'crypto', 'dgram', 'dns', 'domain', 'events', 'fs','fs/promises', 'http',
   'http2', 'https', 'inspector', 'module', 'net', 'os', 'path', 'perf_hooks',
   'process', 'punycode', 'querystring', 'readline', 'repl', 'stream',
   'string_decoder', 'timers', 'tls', 'trace_events', 'tty', 'url', 'util',
