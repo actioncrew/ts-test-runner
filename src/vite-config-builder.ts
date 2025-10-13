@@ -12,20 +12,27 @@ export class ViteConfigBuilder {
 
   private buildInputMap(srcFiles: string[], testFiles: string[]): Record<string, string> {
     let inputMap: Record<string, string> = {};
+    
+    // ✅ FIX: Only include existing files in input map
+    const existingSrcFiles = srcFiles.filter(fs.existsSync);
+    const existingTestFiles = testFiles.filter(fs.existsSync);
+    
     // Add source files
-    srcFiles.forEach(file => {
+    existingSrcFiles.forEach(file => {
       const relPath = path.relative(this.config.srcDir, file).replace(/\.(ts|js|mjs)$/, '');
       const key = relPath.replace(/[\/\\]/g, '_');
       inputMap[key] = norm(file);
     });
 
     // Add test files
-    testFiles.forEach(file => {
+    existingTestFiles.forEach(file => {
       const relPath = path.relative(this.config.testDir, file).replace(/\.spec\.(ts|js|mjs)$/, '');
       const key = `${relPath.replace(/[\/\\]/g, '_')}.spec`;
       inputMap[key] = norm(file);
     });
 
+    console.log(`🎯 Built input map: ${Object.keys(inputMap).length} entries (${existingSrcFiles.length} source, ${existingTestFiles.length} test)`);
+    
     return inputMap;
   }
 
@@ -65,9 +72,46 @@ export class ViteConfigBuilder {
 
   /** Incremental or partial rebuild, flattens output file names */
   createViteConfigForFiles(srcFiles: string[], testFiles: string[], viteCache: any): InlineConfig {
-    const input = this.buildInputMap(srcFiles, testFiles); // keys already flattened
-    this.inputMap = { ...this.inputMap, ...input };
+    // ✅ FIX: Completely rebuild the input map to exclude deleted files
+    const newInput = this.buildInputMap(srcFiles, testFiles);
     
+    // ✅ FIX: Update inputMap by removing deleted files and adding new ones
+    // Remove any entries where the file no longer exists
+    console.log(`🗑️  Removing deleted files from input map`);
+    Object.keys(this.inputMap).forEach(key => {
+      if (!fs.existsSync(this.inputMap[key])) {
+        delete this.inputMap[key];
+      }
+    });
+    
+    // Add/update with new input
+    this.inputMap = { ...this.inputMap, ...newInput };
+    
+    console.log(`📦 Final input map for Vite: ${Object.keys(this.inputMap).length} files`);
+
+    // ✅ FIX: Double-check that no deleted files are in the final input
+    const finalInputMap: Record<string, string> = {};
+    Object.entries(this.inputMap).forEach(([key, filePath]) => {
+      if (fs.existsSync(filePath)) {
+        finalInputMap[key] = filePath;
+      } 
+    });
+
+    if (Object.keys(finalInputMap).length === 0) {
+      console.warn('⚠️  No valid files to build after filtering deleted files');
+      // Return a minimal config that won't fail
+      return {
+        root: process.cwd(),
+        configFile: false,
+        build: {
+          outDir: this.config.outDir,
+          rollupOptions: { input: {} },
+          emptyOutDir: false
+        },
+        logLevel: 'warn'
+      };
+    }
+
     return {
       ...this.config.viteConfig,
       root: process.cwd(),
@@ -76,7 +120,7 @@ export class ViteConfigBuilder {
         outDir: this.config.outDir,
         lib: false,
         rollupOptions: {
-          input: this.inputMap,
+          input: finalInputMap, // ✅ Use the filtered input map
           preserveEntrySignatures: 'allow-extension',
           output: {
             format: 'es',
@@ -99,6 +143,32 @@ export class ViteConfigBuilder {
     };
   }
 
+  /** 
+   * Remove a file from the input map (called by HmrManager when file is deleted)
+   */
+  removeFromInputMap(filePath: string): void {
+    const normalizedPath = norm(filePath);
+    
+    // Find and remove the entry
+    const entries = Object.entries(this.inputMap);
+    let removed = false;
+    
+    for (const [key, path] of entries) {
+      if (norm(path) === normalizedPath) {
+        delete this.inputMap[key];
+        removed = true;
+        break;
+      }
+    }
+  }
+
+  /** 
+   * Remove multiple files from the input map (for directory removal)
+   */
+  removeMultipleFromInputMap(filePaths: string[]): void {
+    filePaths.forEach(filePath => this.removeFromInputMap(filePath));
+  }
+
   createPathAliases(): Record<string, string> {
     const aliases: Record<string, string> = {};
     const cleaner = new JSONCleaner();
@@ -117,7 +187,7 @@ export class ViteConfigBuilder {
         }
       }
     } catch (err) {
-      console.warn('⚠️ tsconfig parsing failed:', err);
+      console.warn('⚠️  tsconfig parsing failed:', err);
     }
     return aliases;
   }
