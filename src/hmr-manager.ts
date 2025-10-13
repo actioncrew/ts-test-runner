@@ -293,7 +293,7 @@ export class HmrManager extends EventEmitter {
         if (resolved) deps.add(norm(resolved));
       }
     } catch (error) {
-      console.warn(`⚠️ Could not extract dependencies from ${filePath}:`, (error as Error).message);
+      console.warn(`⚠️  Could not extract dependencies from ${filePath}:`, (error as Error).message);
     }
     return deps;
   }
@@ -603,7 +603,7 @@ export class HmrManager extends EventEmitter {
     
     // ✅ FIX: Skip if file doesn't exist (for unlink cases)
     if (changeType !== 'unlink' && !fs.existsSync(normalized)) {
-      console.warn(`⚠️ Skipping rebuild for non-existent file: ${normalized}`);
+      console.warn(`⚠️  Skipping rebuild for non-existent file: ${normalized}`);
       return;
     }
     
@@ -637,7 +637,7 @@ export class HmrManager extends EventEmitter {
         // ✅ FIX: Filter out deleted files from ALL queues before processing
         const changedFiles = Array.from(this.rebuildQueue).filter(file => {
           if (!fs.existsSync(file)) {
-            console.warn(`⚠️ Skipping deleted file from rebuild queue: ${file}`);
+            console.warn(`⚠️  Skipping deleted file from rebuild queue: ${file}`);
             return false;
           }
           return true;
@@ -647,7 +647,7 @@ export class HmrManager extends EventEmitter {
 
         const directChangedFiles = Array.from(this.directChanges).filter(file => {
           if (!fs.existsSync(file)) {
-            console.warn(`⚠️ Skipping deleted file from direct changes: ${file}`);
+            console.warn(`⚠️  Skipping deleted file from direct changes: ${file}`);
             return false;
           }
           return true;
@@ -655,7 +655,7 @@ export class HmrManager extends EventEmitter {
         this.directChanges.clear();
 
         if (changedFiles.length === 0) {
-          console.log('⚠️ All queued files were deleted, skipping rebuild');
+          console.log('⚠️  All queued files were deleted, skipping rebuild');
           continue;
         }
 
@@ -674,7 +674,7 @@ export class HmrManager extends EventEmitter {
         const rebuiltFiles = Array.from(filesToRebuild);
 
         if (rebuiltFiles.length === 0) {
-          console.log('⚠️ No valid files to rebuild after filtering');
+          console.log('⚠️  No valid files to rebuild after filtering');
           continue;
         }
 
@@ -689,7 +689,7 @@ export class HmrManager extends EventEmitter {
 
         // Only proceed if we have valid files to build
         if (validSourceFiles.length === 0 && validTestFiles.length === 0) {
-          console.log('⚠️ No valid source or test files to build after filtering');
+          console.log('⚠️  No valid source or test files to build after filtering');
           continue;
         }
 
@@ -718,7 +718,7 @@ export class HmrManager extends EventEmitter {
             const finalTestFiles = validTestFiles.filter(fs.existsSync);
 
             if (finalSourceFiles.length === 0 && finalTestFiles.length === 0) {
-              console.log('⚠️ All entry points were deleted, skipping build');
+              console.log('⚠️  All entry points were deleted, skipping build');
               continue;
             }
 

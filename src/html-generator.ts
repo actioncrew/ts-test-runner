@@ -568,11 +568,16 @@ window.HMRClient = (function() {
       env = await waitForJasmine();
       console.log('✅ Jasmine environment found');
     } catch (error) {
-      console.warn('⚠️ Jasmine environment not found:', error.message);
+      console.warn('⚠️  Jasmine environment not found:', error.message);
       return;
     }
 
-    env.configure({ autoCleanClosures: false });
+    env.configure({
+      random: false,
+      stopOnSpecFailure: ${this.config.jasmineConfig?.env?.stopSpecOnExpectationFailure ?? false}
+      autoCleanClosures: false
+    });
+
 
     function isSpec(child) {
       return child && typeof child.id === 'string' && !child.children;
@@ -684,7 +689,7 @@ window.HMRClient = (function() {
     async function executeSpecsByIds(specIds) {
       // Prevent concurrent executions
       if (isExecuting) {
-        console.warn('⚠️ Execution already in progress. Please wait...');
+        console.warn('⚠️  Execution already in progress. Please wait...');
         return [];
       }
 
@@ -735,7 +740,7 @@ window.HMRClient = (function() {
         return [];
       }
 
-      const specIds = matching.map(s => s.id);
+      const specIds = matching.map(s => s.id).sort();
       console.log(\`🎯 Executing \${matching.length} spec(s):\`, 
         matching.map(s => s.description)
       );
@@ -777,7 +782,7 @@ window.HMRClient = (function() {
         matching.map(s => s.description)
       );
 
-      const specIds = allSpecs.map(s => s.id);
+      const specIds = allSpecs.map(s => s.id).sort();
       return await executeSpecsByIds(specIds);
     }
 
