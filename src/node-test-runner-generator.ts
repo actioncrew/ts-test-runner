@@ -63,7 +63,7 @@ process.on('uncaughtException', error => {
   
   // Configure environment
   env.configure({
-    random: ${this.config.jasmineConfig?.env?.random ?? true},
+    random: ${this.config.jasmineConfig?.env?.random ?? false},
     stopOnSpecFailure: ${this.config.jasmineConfig?.env?.stopSpecOnExpectationFailure ?? false}
   });
 

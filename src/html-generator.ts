@@ -573,8 +573,8 @@ window.HMRClient = (function() {
     }
 
     env.configure({
-      random: false,
-      stopOnSpecFailure: ${this.config.jasmineConfig?.env?.stopSpecOnExpectationFailure ?? false}
+      random: ${this.config.jasmineConfig?.env?.random ?? false},
+      stopOnSpecFailure: ${this.config.jasmineConfig?.env?.stopSpecOnExpectationFailure ?? false},
       autoCleanClosures: false
     });
 
@@ -709,7 +709,9 @@ window.HMRClient = (function() {
 
         // Set filter to only run our target specs
         env.configure({
-          specFilter: (spec) => specIdSet.has(spec.id)
+          random: ${this.config.jasmineConfig?.env?.random ?? false},
+          specFilter: (spec) => specIdSet.has(spec.id),
+          autoCleanClosures: false
         });
 
         // Create a one-time resolver for this execution
