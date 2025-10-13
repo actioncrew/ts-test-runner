@@ -446,27 +446,41 @@ window.HMRClient = (function() {
 
         const child = childWrapper;
 
+        // If this child matches the filePath, skip it entirely
         if (child._filePath === filePath) {
-          // Recursively clean nested suites
-          cleanSuite(child);
+          // Don't recursively clean - we're removing this entire branch
           continue;
         }
 
+        // If this child is a suite, recursively clean its children
+        if (child.children && Array.isArray(child.children)) {
+          cleanSuite(child);
+        }
+
+        // Keep this child (it doesn't match the filePath)
         keep.push(childWrapper);
       }
 
-      // Replace children array directly (safe for all Jasmine versions)
-      suite.removeChildren();
-      keep.forEach(item => suite.addChild(item));
+      // Replace children array
+      if (suite.removeChildren && suite.addChild) {
+        // Use Jasmine's API if available
+        suite.removeChildren();
+        keep.forEach(item => suite.addChild(item));
+      } else {
+        // Fallback: direct array replacement
+        suite.children = keep;
+      }
 
-      // Also remove matching specs from this suite
+      // Also clean specs array if it exists
       if (Array.isArray(suite.specs)) {
         suite.specs = suite.specs.filter(spec => spec._filePath !== filePath);
       }
     }
 
-    // Clean starting from top suite’s real instance
+    // Clean starting from top suite's real instance
     cleanSuite(topSuite);
+    
+    console.log(\`🧹 Detached all suites/specs with _filePath: \${filePath}\`);
   }
 
   // Hot update a single module
@@ -608,7 +622,7 @@ window.HMRClient = (function() {
 
       specStarted: function (result) {
         if (this.currentSpecIdSet && this.currentSpecIdSet.has(result.id)) {
-          console.log(\`▶️ Running: \${result.description}\`);
+          console.log(\`▶️ Running [\${result.id}]: \${result.description}\`);
         }
       },
 
@@ -647,25 +661,6 @@ window.HMRClient = (function() {
     // Add the reporter ONCE after setup
     env.addReporter(customReporter);
     console.log('📊 Custom reporter attached (reusable).');
-
-    // Reset the environment to allow re-execution
-    function resetEnvironment() {
-      // Reset all specs and suites
-      const resetNode = (node) => {
-        if (node.result) {
-          node.result = {
-            status: 'pending',
-            failedExpectations: [],
-            passedExpectations: []
-          };
-        }
-        if (node.children) {
-          node.children.forEach(resetNode);
-        }
-      };
-      
-      resetNode(env.topSuite());
-    }
 
     async function executeSpecsByIds(specIds) {
       // Prevent concurrent executions
@@ -796,24 +791,12 @@ window.HMRClient = (function() {
       return suiteParts.length ? suiteParts.join(' > ') : '(root)';
     }
 
-    function clearResults() {
-      const jasmineContainer = document.querySelector('.jasmine_html-reporter');
-      if (jasmineContainer) jasmineContainer.innerHTML = '';
-      console.clear();
-      // Optional: Reset reporter state
-      customReporter.results = [];
-      customReporter.currentSpecIdSet = null;
-    }
-
     globalThis.runner = {
       runTests,
       runTest,
       runSuite,
       listTests,
-      clearResults,
-      getAllSpecs,
-      getAllSuites,
-      resetEnvironment
+      reload: () => location.reload(),
     };
 
     console.log('%c✅ Jasmine 5 runner loaded with reusable reporter!', 'color: green; font-weight: bold;');
