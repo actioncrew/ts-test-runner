@@ -42,9 +42,9 @@ export class ViteJasmineRunner extends EventEmitter {
     const cwd = norm(process.cwd());
     this.config = {
       ...config,
-      browser: config.browser ?? 'chrome',
+      browser: config.browser ?? 'node',
       port: config.port ?? 8888,
-      headless: config.headless ?? false,
+      headless: config.headless ?? true,
       watch: config.watch ?? false,
       srcDir: norm(config.srcDir) ?? cwd,
       testDir: norm(config.testDir) ?? cwd,
