@@ -140,8 +140,6 @@ export class BrowserManager {
       const page = await browser.newPage();
       await page.goto(url);
       
-      console.log(`✅ Browser opened successfully: ${url}`);
-      
       // Handle browser close event
       page.on('close', async () => {
         if (onBrowserClose) {
