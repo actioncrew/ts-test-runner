@@ -88,20 +88,19 @@ export class HtmlGenerator {
   <script src="/node_modules/jasmine-core/lib/jasmine-core/jasmine.js"></script>
   <script src="/node_modules/jasmine-core/lib/jasmine-core/jasmine-html.js"></script>
   <script src="/node_modules/jasmine-core/lib/jasmine-core/boot0.js"></script>
+  <script src="/node_modules/jasmine-core/lib/jasmine-core/boot1.js"></script>
   <script>
     ${this.getWebSocketEventForwarderScript()}
+    
+    const forwarder = new WebSocketEventForwarder();
+    forwarder.connect();
+    jasmine.getEnv().addReporter(forwarder);
   </script>
 </head>
 <body>
   <div class="jasmine_html-reporter"></div>
   <script type="module">
     ${imports}
-    
-    // Add the WebSocket forwarder as a reporter
-    const forwarder = new WebSocketEventForwarder();
-    forwarder.connect();
-    jasmine.getEnv().addReporter(forwarder);  
-    jasmine.getEnv().execute();
   </script>
 </body>
 </html>`;
