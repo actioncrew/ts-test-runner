@@ -27,8 +27,9 @@ export class NodeTestRunnerGenerator {
       .join('\n');
 
     const runnerContent = this.generateRunnerTemplate(imports);
-    fs.writeFileSync(norm(path.join(outDir, 'test-runner.js')), runnerContent);
-    console.log('🤖 Generated headless test runner:', norm(path.relative(outDir, 'test-runner.js')));
+    const testRunnerPath = norm(path.join(outDir, 'test-runner.js'));
+    fs.writeFileSync(testRunnerPath, runnerContent);
+    console.log('🤖 Generated headless test runner:', norm(path.relative(outDir, testRunnerPath)));
   }
 
   private generateRunnerTemplate(imports: string): string {
