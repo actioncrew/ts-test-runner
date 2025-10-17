@@ -317,11 +317,26 @@ function WebSocketEventForwarder() {
   };
 
   // Jasmine reporter hooks
-  this.jasmineStarted = function(suiteInfo) {
+  this.jasmineStarted = function(config) {
     self.send({
       type: 'start',
-      totalSpecs: suiteInfo.totalSpecsDefined,
-      order: suiteInfo.order,
+      ...config,
+      timestamp: Date.now()
+    });
+  };
+
+  this.suiteStarted = function(config) {
+    self.send({
+      type: 'suiteStarted',
+      ...config,
+      timestamp: Date.now()
+    });
+  }
+
+  this.specStarted = function(config) {
+    self.send({
+      type: 'specStarted',
+      ...config,
       timestamp: Date.now()
     });
   };
@@ -329,28 +344,25 @@ function WebSocketEventForwarder() {
   this.specDone = function(result) {
     self.send({
       type: 'specDone',
-      id: result.id,
-      description: result.description,
-      fullName: result.fullName,
-      status: result.status,
-      passedExpectations: result.passedExpectations || [],
-      failedExpectations: result.failedExpectations || [],
-      pendingReason: result.pendingReason || null,
-      duration: result.duration || 0,
+      ...result,
       timestamp: Date.now()
     });
   };
 
+  this.suiteDone = function(result) {
+    self.send({
+      type: 'suiteDone',
+      ...result,
+      timestamp: Date.now()
+    });
+  };
+  
   this.jasmineDone = function(result) {
     const coverage = globalThis.__coverage__;
 
     self.send({
       type: 'done',
-      totalTime: result.totalTime || 0,
-      overallStatus: result.overallStatus || 'complete',
-      incompleteReason: result.incompleteReason || null,
-      order: result.order || null,
-      timestamp: Date.now(),
+      ...result,
       coverage: coverage ? JSON.stringify(coverage) : null
     });
 
