@@ -319,7 +319,7 @@ function WebSocketEventForwarder() {
   // Jasmine reporter hooks
   this.jasmineStarted = function(config) {
     self.send({
-      type: 'start',
+      type: 'jasmineStarted',
       ...config,
       timestamp: Date.now()
     });
@@ -361,7 +361,7 @@ function WebSocketEventForwarder() {
     const coverage = globalThis.__coverage__;
 
     self.send({
-      type: 'done',
+      type: 'jasmineDone',
       ...result,
       coverage: coverage ? JSON.stringify(coverage) : null
     });

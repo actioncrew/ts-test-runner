@@ -63,32 +63,28 @@ export class WebSocketManager extends EventEmitter {
   private handleWebSocketMessage(message: any): void {
     try {
       switch (message.type) {
-        case 'start':
-          this.reporter?.jasmineStarted({ 
-            totalSpecsDefined: message.totalSpecs || 0 
-          });
+        case 'jasmineStarted':
+          this.reporter?.jasmineStarted(message);
           break;
-          
+        
+        case 'suiteStarted':
+          this.reporter?.suiteStarted(message);
+          break;
+        
+        case 'specStarted':
+          this.reporter?.specStarted(message);
+          break;
+        
         case 'specDone':
-          this.reporter?.specDone({
-            id: message.id,
-            description: message.description,
-            fullName: message.fullName,
-            status: message.status,
-            passedExpectations: message.passedExpectations || [],
-            failedExpectations: message.failedExpectations || [],
-            pendingReason: message.pendingReason || null,
-            duration: message.duration || 0
-          });
+          this.reporter?.specDone(message);
           break;
-          
-        case 'done':
-          this.reporter?.jasmineDone({
-            totalTime: message.totalTime || 0,
-            overallStatus: message.overallStatus || 'passed',
-            incompleteReason: message.incompleteReason || null,
-            order: message.order || null
-          });
+        
+        case 'suiteDone':
+          this.reporter?.suiteDone(message);
+          break;
+
+        case 'jasmineDone':
+          this.reporter?.jasmineDone(message);
           
           const coverage = message.coverage ? new JSONCleaner().parse(message.coverage) : null;
           const success = message.overallStatus === 'passed' && message.failedSpecsCount === 0;
