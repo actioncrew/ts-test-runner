@@ -26,7 +26,8 @@ export class ConsoleReporter {
     };
   }
 
-  jasmineStarted(options: any) {
+  jasmineStarted(config: any) {
+    console.log('jasmineConfig:', config);
     this.specCount = 0;
     this.executableSpecCount = 0;
     this.failureCount = 0;
@@ -35,7 +36,16 @@ export class ConsoleReporter {
     this.print('🏃 Executing tests...\n\n');
   }
 
+  suiteStarted(config: any) {
+    console.log('suiteDone:', config);
+  }
+
+  specStarted(config: any) {
+    console.log('specStarted:', config);
+  }
+
   specDone(result: any) {
+    console.log('specDone:', result);
     this.specCount++;
     switch (result.status) {
       case 'passed': 
@@ -56,9 +66,9 @@ export class ConsoleReporter {
     }
   }
 
-  suiteStarted() {}
-  specStarted() {}
-  suiteDone() {}
+  suiteDone(result: any) {
+    console.log('suiteDone:', result);
+  }
 
   jasmineDone(result: any) {
     const totalTime = result ? result.totalTime / 1000 : 0;
