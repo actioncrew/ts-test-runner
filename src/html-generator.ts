@@ -616,19 +616,18 @@ window.HMRClient = (function() {
     let originalSpecFilter = null;
     let isExecuting = false;
 
-    // SINGLETON REPORTER: Created once, added once, reused across runs
-    const customReporter = {
+    const inBrowserReporter = {
       results: [],  // Per-run results storage
       currentSpecIdSet: null,  // Current filter set for this run
 
       // Reset state at the start of each run
-      jasmineStarted: function () {
+      jasmineStarted: function (config) {
         this.results = [];
       },
 
-      specStarted: function (result) {
-        if (this.currentSpecIdSet && this.currentSpecIdSet.has(result.id)) {
-          console.log(\`▶️ Running [\${result.id}]: \${result.description}\`);
+      specStarted: function (config) {
+        if (this.currentSpecIdSet && this.currentSpecIdSet.has(config.id)) {
+          console.log(\`▶️ Running [\${config.id}]: \${config.description}\`);
         }
       },
 
@@ -646,7 +645,7 @@ window.HMRClient = (function() {
         }
       },
 
-      jasmineDone: () => {
+      jasmineDone: (result) => {
         // Always restore filter, even on errors
         if (originalSpecFilter !== null) {
           env.configure({ specFilter: originalSpecFilter });
@@ -665,8 +664,8 @@ window.HMRClient = (function() {
     };
 
     // Add the reporter ONCE after setup
-    env.addReporter(customReporter);
-    console.log('📊 Custom reporter attached (reusable).');
+    env.addReporter(inBrowserReporter);
+    console.log('📊 In-browser reporter attached.');
 
     // Reset the environment to allow re-execution
     function resetEnvironment() {
@@ -696,9 +695,9 @@ window.HMRClient = (function() {
 
       return new Promise((resolve) => {
         isExecuting = true;
-        customReporter.results = [];  // Reset results here too
+        inBrowserReporter.results = [];  // Reset results here too
         const specIdSet = new Set(specIds);
-        customReporter.currentSpecIdSet = specIdSet;  // Set for this run
+        inBrowserReporter.currentSpecIdSet = specIdSet;  // Set for this run
         
         // Store original filter if not already stored
         if (originalSpecFilter === null) {
@@ -716,12 +715,12 @@ window.HMRClient = (function() {
         });
 
         // Create a one-time resolver for this execution
-        const originalJasmineDone = customReporter.jasmineDone;
-        customReporter.jasmineDone = () => {
-          originalJasmineDone.call(customReporter);
-          resolve(customReporter.results);
+        const originalJasmineDone = inBrowserReporter.jasmineDone;
+        inBrowserReporter.jasmineDone = () => {
+          originalJasmineDone.call(inBrowserReporter);
+          resolve(inBrowserReporter.results);
           // Restore original jasmineDone
-          customReporter.jasmineDone = originalJasmineDone;
+          inBrowserReporter.jasmineDone = originalJasmineDone;
         };
 
         // Execute with the filter in place
