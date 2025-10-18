@@ -18,6 +18,10 @@ export class MultiReporter {
     this.reporters.push(reporter);
   }
 
+  userAgent(agentInfo: any) {
+    this.reporters.forEach(r => (r as any)?.userAgent?.(agentInfo));  
+  }
+
   jasmineStarted(suiteInfo: any) {
     this.reporters.forEach(r => r.jasmineStarted?.(suiteInfo));
   }
