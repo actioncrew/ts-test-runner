@@ -19,6 +19,7 @@ export { norm } from './utils';
 export { ViteConfigBuilder } from './vite-config-builder';
 export type { ViteJasmineConfig } from './vite-jasmine-config';
 export { ViteJasmineRunner } from './vite-jasmine-runner';
+export { TeletypeConsole } from './teletype-console';
 
 // === CLI Entry Point ===
 // @vite-ignore

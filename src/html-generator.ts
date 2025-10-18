@@ -270,6 +270,18 @@ function WebSocketEventForwarder() {
       self.connected = true;
       console.log('WebSocket connected to', wsUrl);
 
+      self.send({
+        type: 'userAgent',
+        userAgent: navigator.userAgent,
+        appName: navigator.appName,
+        appVersion: navigator.appVersion,
+        platform: navigator.platform,
+        vendor: navigator.vendor,
+        language: navigator.language,
+        languages: navigator.languages,
+        timestamp: Date.now()
+      });
+
       // Flush queued messages
       while (self.messageQueue.length > 0) {
         const msg = self.messageQueue.shift();

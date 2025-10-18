@@ -46,7 +46,7 @@
   "dependencies": {
     "chokidar": "^4.0.3",
     "chromium-bidi": "^9.1.0",
-    "esbuild": "^0.25.10",
+    "esbuild": "^0.25.11",
     "fdir": "^6.5.0",
     "glob": "^11.0.3",
     "istanbul-api": "^2.1.7",

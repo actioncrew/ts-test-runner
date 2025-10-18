@@ -63,6 +63,10 @@ export class WebSocketManager extends EventEmitter {
   private handleWebSocketMessage(message: any): void {
     try {
       switch (message.type) {
+        case 'userAgent':
+          (this.reporter as any)?.userAgent?.(message);
+          break;
+
         case 'jasmineStarted':
           this.reporter?.jasmineStarted(message);
           break;
