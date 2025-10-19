@@ -6,7 +6,7 @@ export { CLIHandler } from './cli-handler';
 export { ConfigManager } from './config-manager';
 export { ConsoleReporter } from './console-reporter';
 export { CoverageReporter } from './coverage-reporter';
-export { MultiReporter } from './multi-reporter';
+export { CompoundReporter as MultiReporter } from './compound-reporter';
 export { FileDiscoveryService } from './file-discovery-service';
 export { HtmlGenerator } from './html-generator';
 export { HttpServerManager } from './http-server-manager';
@@ -19,7 +19,6 @@ export { norm } from './utils';
 export { ViteConfigBuilder } from './vite-config-builder';
 export type { ViteJasmineConfig } from './vite-jasmine-config';
 export { ViteJasmineRunner } from './vite-jasmine-runner';
-export { TeletypeConsole } from './teletype-console';
 
 // === CLI Entry Point ===
 // @vite-ignore

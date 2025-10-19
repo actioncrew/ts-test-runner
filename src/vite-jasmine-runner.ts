@@ -14,7 +14,7 @@ import { ViteJasmineConfig } from './vite-jasmine-config';
 import { ConsoleReporter } from './console-reporter';
 import { IstanbulInstrumenter } from './istanbul-instrumenter';
 import { WebSocketManager } from './websocket-manager';
-import { MultiReporter } from './multi-reporter';
+import { CompoundReporter } from './compound-reporter';
 import { CoverageReporter } from './coverage-reporter';
 import { CoverageReportGenerator } from './coverage-report-generator';
 import { HmrManager } from './hmr-manager';
@@ -32,7 +32,7 @@ export class ViteJasmineRunner extends EventEmitter {
   private httpServerManager: HttpServerManager;
   private nodeTestRunner: NodeTestRunner;
   private webSocketManager: WebSocketManager | null = null;
-  private multiReporter: MultiReporter;
+  private multiReporter: CompoundReporter;
   private instrumenter: IstanbulInstrumenter;
   private hmrManager: HmrManager | null = null;
 
@@ -59,7 +59,7 @@ export class ViteJasmineRunner extends EventEmitter {
     this.httpServerManager = new HttpServerManager(this.config);
     this.nodeTestRunner = new NodeTestRunner(this.config);
     this.instrumenter = new IstanbulInstrumenter(this.config);
-    this.multiReporter = new MultiReporter([
+    this.multiReporter = new CompoundReporter([
       new ConsoleReporter(),
       new CoverageReporter(),
     ]);

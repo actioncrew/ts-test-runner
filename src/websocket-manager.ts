@@ -2,7 +2,7 @@ import { EventEmitter } from 'events';
 import { WebSocketServer, WebSocket } from 'ws';
 import http from 'http';
 import JSONCleaner from './json-cleaner';
-import { Reporter } from './multi-reporter';
+import { Reporter } from './compound-reporter';
 import { HmrManager, HmrUpdate } from './hmr-manager';
 import { FileDiscoveryService } from './file-discovery-service';
 import { ViteConfigBuilder } from './vite-config-builder';

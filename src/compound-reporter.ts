@@ -7,7 +7,7 @@ export interface Reporter {
   jasmineDone(result: any): void;
 }
 
-export class MultiReporter {
+export class CompoundReporter {
   private reporters: Reporter[];
 
   constructor(reporters: Reporter[] = []) {

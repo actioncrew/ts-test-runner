@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { Reporter } from './multi-reporter';
+import { Reporter } from './compound-reporter';
 import { CoverageReportGenerator } from './coverage-report-generator';
 
 export interface CoverageReporterOptions {

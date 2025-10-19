@@ -322,7 +322,7 @@ export class ConsoleReporter {
     const suiteNameLength = displayName.replace(/\.\.\.$/, '').length + (displayName.includes('...') ? 3 : 0);
     const dotsLength = this.countVisualDots(displayDots);
 
-    let padding = ' '.repeat(Math.max(0, availableWidth - suiteNameLength - dotsLength));
+    let padding = ' '.repeat(Math.max(0, availableWidth - suiteNameLength - dotsLength + 1));
 
     // Shift dots right by one: add a space
     displayDots = ' ' + displayDots;
