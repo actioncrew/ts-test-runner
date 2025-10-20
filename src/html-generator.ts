@@ -260,7 +260,7 @@ function WebSocketEventForwarder() {
   const self = this;
 
   // Establish WebSocket connection
-  this.connect = function() {
+  this.connect = function () {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = protocol + '//' + window.location.host;
 
@@ -282,7 +282,6 @@ function WebSocketEventForwarder() {
         timestamp: Date.now()
       });
 
-      // Flush queued messages
       while (self.messageQueue.length > 0) {
         const msg = self.messageQueue.shift();
         self.send(msg);
@@ -292,7 +291,6 @@ function WebSocketEventForwarder() {
     self.ws.onclose = () => {
       self.connected = false;
       console.log('WebSocket disconnected');
-      // Reconnect after a short delay
       setTimeout(() => self.connect(), 1000);
     };
 
@@ -304,8 +302,6 @@ function WebSocketEventForwarder() {
     self.ws.onmessage = async (event) => {
       try {
         const message = JSON.parse(event.data);
-
-        // Forward HMR messages to HMRClient
         if (window.HMRClient && (message.type === 'hmr:connected' || message.type === 'hmr:update')) {
           await window.HMRClient.handleMessage(message);
         }
@@ -316,7 +312,7 @@ function WebSocketEventForwarder() {
   };
 
   // Send message immediately or queue if not connected
-  this.send = function(msg) {
+  this.send = function (msg) {
     if (self.connected && self.ws && self.ws.readyState === WebSocket.OPEN) {
       try {
         self.ws.send(JSON.stringify(msg));
@@ -328,32 +324,125 @@ function WebSocketEventForwarder() {
     }
   };
 
+  // Collect all specs recursively
+  this.getAllSpecs = function () {
+    const allSpecs = [];
+    function collect(suite) {
+      suite.children.forEach((child) => {
+        if (child.children && child.children.length > 0) {
+          collect(child);
+        } else {
+          allSpecs.push(child);
+        }
+      });
+    }
+    collect(jasmine.getEnv().topSuite());
+    return allSpecs;
+  };
+
+  // Collect suites recursively
+  this.getAllSuites = function () {
+    const allSuites = [];
+    function collect(suite) {
+      allSuites.push(suite);
+      suite.children.forEach((child) => {
+        if (child.children && child.children.length > 0) {
+          collect(child);
+        }
+      });
+    }
+    collect(jasmine.getEnv().topSuite());
+    return allSuites;
+  };
+
+  // Get ordered specs using seed and random flag
+  this.getOrderedSpecs = function (seed, random) {
+    const allSpecs = self.getAllSpecs();
+    if (!random) return allSpecs;
+
+    const OrderCtor = jasmine.Order;
+    if (typeof OrderCtor === 'function') {
+      try {
+        const order = new OrderCtor({ random, seed });
+        if (typeof order.sort === 'function') {
+          return order.sort(allSpecs);
+        }
+      } catch (err) {
+        console.warn('Failed to create jasmine.Order:', err);
+      }
+    }
+    return allSpecs;
+  };
+
+  // Get ordered suites using seed and random flag
+  this.getOrderedSuites = function (seed, random) {
+    const allSuites = self.getAllSuites();
+    if (!random) return allSuites;
+
+    const OrderCtor = jasmine.Order;
+    if (typeof OrderCtor === 'function') {
+      try {
+        const order = new OrderCtor({ random, seed });
+        if (typeof order.sort === 'function') {
+          return order.sort(allSuites);
+        }
+      } catch (err) {
+        console.warn('Failed to create jasmine.Order for suites:', err);
+      }
+    }
+    return allSuites;
+  };
+
   // Jasmine reporter hooks
-  this.jasmineStarted = function(config) {
+  this.jasmineStarted = function (config) {
+    let orderedSpecs = [];
+    let orderedSuites = [];
+
+    if (config.order) {
+      const random = !!config.order.random;
+      const seed = config.order.seed;
+      orderedSpecs = self.getOrderedSpecs(seed, random);
+      orderedSuites = self.getOrderedSuites(seed, random);
+    }
+
     self.send({
       type: 'jasmineStarted',
       ...config,
+      orderedSpecs: orderedSpecs.map((spec) => ({
+        id: spec.id,
+        description: spec.description,
+        fullName: spec.fullName
+      })),
+      orderedSuites: orderedSuites.map((suite) => ({
+        id: suite.id,
+        description: suite.description,
+        fullName: suite.fullName
+      })),
       timestamp: Date.now()
     });
   };
 
-  this.suiteStarted = function(config) {
+  this.suiteStarted = function (suite) {
     self.send({
       type: 'suiteStarted',
-      ...config,
-      timestamp: Date.now()
-    });
-  }
-
-  this.specStarted = function(config) {
-    self.send({
-      type: 'specStarted',
-      ...config,
+      id: suite.id,
+      description: suite.description,
+      fullName: suite.fullName,
       timestamp: Date.now()
     });
   };
 
-  this.specDone = function(result) {
+  this.specStarted = function (spec) {
+    self.send({
+      type: 'specStarted',
+      id: spec.id,
+      description: spec.description,
+      fullName: spec.fullName,
+      timestamp: Date.now()
+    });
+  };
+
+  this.specDone = function (result) {
     self.send({
       type: 'specDone',
       ...result,
@@ -361,26 +450,27 @@ function WebSocketEventForwarder() {
     });
   };
 
-  this.suiteDone = function(result) {
+  this.suiteDone = function (suite) {
     self.send({
       type: 'suiteDone',
-      ...result,
+      id: suite.id,
+      description: suite.description,
+      fullName: suite.fullName,
       timestamp: Date.now()
     });
   };
-  
-  this.jasmineDone = function(result) {
-    const coverage = globalThis.__coverage__;
 
+  this.jasmineDone = function (result) {
+    const coverage = globalThis.__coverage__;
     self.send({
       type: 'jasmineDone',
       ...result,
-      coverage: coverage ? JSON.stringify(coverage) : null
+      coverage: coverage ? JSON.stringify(coverage) : null,
+      timestamp: Date.now()
     });
 
     window.jasmineFinished = true;
 
-    // Only close WebSocket if HMR is not present
     if (!window.HMRClient) {
       setTimeout(() => {
         if (self.ws) self.ws.close();
