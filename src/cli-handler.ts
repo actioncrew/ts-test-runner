@@ -1,4 +1,5 @@
 import { ConfigManager } from "./config-manager";
+import { logger } from "./console-repl";
 import { ViteJasmineConfig } from "./vite-jasmine-config";
 import { ViteJasmineRunner } from "./vite-jasmine-runner";
 
@@ -34,7 +35,7 @@ export class CLIHandler {
       if (coverage) invalidFlags.push('--coverage');
       
       if (invalidFlags.length > 0) {
-        console.error(`❌ The --watch flag cannot be used with: ${invalidFlags.join(', ')}`);
+        logger.error(`❌ The --watch flag cannot be used with: ${invalidFlags.join(', ')}`);
         process.exit(1);
       }
     }
@@ -57,7 +58,7 @@ export class CLIHandler {
         await runner.start();
       }
     } catch (error) {
-      console.error('❌ Failed to start test runner:', error);
+      logger.error(`❌ Failed to start test runner: ${error}`);
       process.exit(1);
     }
   }

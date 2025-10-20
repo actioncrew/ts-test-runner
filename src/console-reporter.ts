@@ -1,4 +1,5 @@
 import util from 'util';
+import { logger } from './console-repl';
 
 interface EnvironmentInfo {
   node: string;
@@ -173,9 +174,6 @@ export class ConsoleReporter {
           parentSuite.specs.push(spec);
         } else {
           // orphaned spec → does not belong to any known suite
-          this.print(
-            `⚠️  Orphan spec "${spec.description}" (id: ${spec.id}) has no valid suite, attaching to root.`
-          );
           this.rootSuite.specs.push(spec);
         }
       });
@@ -203,15 +201,13 @@ export class ConsoleReporter {
 
     // 4️⃣ Clean up root specs (optional)
     if (this.rootSuite.specs.length > 0) {
-      this.print(
-        `⚠️  ${this.rootSuite.specs.length} orphan specs attached directly to root.`
-      );
+      logger.println(`⚠️  ${this.rootSuite.specs.length} orphan specs attached directly to root.`);
     }
 
     // Debug summary
     const totalSuites = this.suiteById.size - 1;
     const totalSpecs = this.specById.size;
-    this.print(`🧩 Suite tree built (${totalSuites} suites, ${totalSpecs} specs).`);
+    logger.println(`🧩 Suite tree built (${totalSuites} suites, ${totalSpecs} specs).`);
   }
 
   private normalizeDescription(desc: any): string {

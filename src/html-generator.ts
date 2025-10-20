@@ -4,6 +4,7 @@ import { ViteJasmineConfig } from "./vite-jasmine-config";
 import { norm } from './utils';
 import { fileURLToPath } from 'url';
 import { FileDiscoveryService } from './file-discovery-service';
+import { logger } from './console-repl';
 
 export class HtmlGenerator {
   constructor(private fileDiscovery: FileDiscoveryService, private config: ViteJasmineConfig) { }
@@ -19,7 +20,7 @@ export class HtmlGenerator {
       .sort();
 
     if (builtFiles.length === 0) {
-      console.warn('⚠️  No JS files found for HTML generation.');
+      logger.println('⚠️  No JS files found for HTML generation.');
       return;
     }
 
@@ -40,14 +41,14 @@ export class HtmlGenerator {
       const faviconBase64 = faviconData.toString('base64');
       faviconTag = `<link rel="icon" type="image/x-icon" href="data:image/x-icon;base64,${faviconBase64}">`;
     } else {
-      console.warn(`⚠️  Favicon not found at ${faviconPath}, using default <link>`);
+      logger.println(`⚠️  Favicon not found at ${faviconPath}, using default <link>`);
       faviconTag = `<link rel="icon" href="favicon.ico" type="image/x-icon" />`;
     }
 
     const htmlContent = this.generateHtmlTemplate(imports, faviconTag);
     const htmlPath = norm(path.join(htmlDir, 'index.html'));
     fs.writeFileSync(htmlPath, htmlContent);
-    console.log('📄 Generated test page:', norm(path.relative(this.config.outDir, htmlPath)));
+    logger.println(`📄 Generated test page: ${norm(path.relative(this.config.outDir, htmlPath))}`);
   }
 
   async generateHtmlFileWithHmr() {
@@ -67,7 +68,7 @@ export class HtmlGenerator {
       const faviconBase64 = faviconData.toString('base64');
       faviconTag = `<link rel="icon" type="image/x-icon" href="data:image/x-icon;base64,${faviconBase64}">`;
     } else {
-      console.warn(`⚠️  Favicon not found at ${faviconPath}, using default <link>`);
+      logger.println(`⚠️  Favicon not found at ${faviconPath}, using default <link>`);
       faviconTag = `<link rel="icon" href="favicon.ico" type="image/x-icon" />`;
     }
 
@@ -368,7 +369,7 @@ function WebSocketEventForwarder() {
           return order.sort(allSpecs);
         }
       } catch (err) {
-        console.warn('Failed to create jasmine.Order:', err);
+        console.error('Failed to create jasmine.Order:', err);
       }
     }
     return allSpecs;
@@ -387,7 +388,7 @@ function WebSocketEventForwarder() {
           return order.sort(allSuites);
         }
       } catch (err) {
-        console.warn('Failed to create jasmine.Order for suites:', err);
+        console.error('Failed to create jasmine.Order for suites:', err);
       }
     }
     return allSuites;
@@ -488,7 +489,7 @@ window.HMRClient = (function() {
   const moduleRegistry = new Map();
   const j$ = window.jasmine;
   if (!j$ || !j$.getEnv) {
-    console.warn('❌ Jasmine not found. HMR will not work.');
+    console.error('❌ Jasmine not found. HMR will not work.');
     return { handleMessage: async () => {} };
   }
 
@@ -683,7 +684,7 @@ window.HMRClient = (function() {
       env = await waitForJasmine();
       console.log('✅ Jasmine environment found');
     } catch (error) {
-      console.warn('⚠️  Jasmine environment not found:', error.message);
+      console.error('⚠️  Jasmine environment not found:', error.message);
       return;
     }
 
@@ -769,7 +770,7 @@ window.HMRClient = (function() {
 
       // Fallback for unhandled errors (ensures cleanup)
       jasmineErrored: (error) => {
-        console.error('❌ Jasmine execution errored:', error);
+        console.error(\`❌ Jasmine execution errored: \${error}\`);
         if (originalSpecFilter !== null) {
           env.configure({ specFilter: originalSpecFilter });
         }
@@ -947,7 +948,7 @@ window.HMRClient = (function() {
 
   // Start initialization
   initializeRunner().catch(error => {
-    console.error('Failed to initialize Jasmine runner:', error);
+    console.error(\`Failed to initialize Jasmine runner: \${error}\`);
   });
 })(window);
 `;

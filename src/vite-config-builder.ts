@@ -4,6 +4,7 @@ import { InlineConfig } from "vite";
 import { ViteJasmineConfig } from "./vite-jasmine-config";
 import { norm } from './utils';
 import JSONCleaner from './json-cleaner';
+import { logger } from './console-repl';
 
 export class ViteConfigBuilder {
   inputMap: Record<string, string> = {};
@@ -31,7 +32,7 @@ export class ViteConfigBuilder {
       inputMap[key] = norm(file);
     });
 
-    console.log(`🎯 Built input map: ${Object.keys(inputMap).length} entries (${existingSrcFiles.length} source, ${existingTestFiles.length} test)`);
+    logger.println(`🎯 Built input map: ${Object.keys(inputMap).length} entries (${existingSrcFiles.length} source, ${existingTestFiles.length} test)`);
     
     return inputMap;
   }
@@ -77,7 +78,7 @@ export class ViteConfigBuilder {
     
     // ✅ FIX: Update inputMap by removing deleted files and adding new ones
     // Remove any entries where the file no longer exists
-    console.log(`🗑️  Removing deleted files from input map`);
+    logger.println(`🗑️  Removing deleted files from input map`);
     Object.keys(this.inputMap).forEach(key => {
       if (!fs.existsSync(this.inputMap[key])) {
         delete this.inputMap[key];
@@ -87,7 +88,7 @@ export class ViteConfigBuilder {
     // Add/update with new input
     this.inputMap = { ...this.inputMap, ...newInput };
     
-    console.log(`📦 Final input map for Vite: ${Object.keys(this.inputMap).length} files`);
+    logger.println(`📦 Final input map for Vite: ${Object.keys(this.inputMap).length} files`);
 
     // ✅ FIX: Double-check that no deleted files are in the final input
     const finalInputMap: Record<string, string> = {};
@@ -98,7 +99,7 @@ export class ViteConfigBuilder {
     });
 
     if (Object.keys(finalInputMap).length === 0) {
-      console.warn('⚠️  No valid files to build after filtering deleted files');
+      logger.println('⚠️  No valid files to build after filtering deleted files');
       // Return a minimal config that won't fail
       return {
         root: process.cwd(),
@@ -187,7 +188,7 @@ export class ViteConfigBuilder {
         }
       }
     } catch (err) {
-      console.warn('⚠️  tsconfig parsing failed:', err);
+      logger.error(`⚠️  tsconfig parsing failed: ${err}`);
     }
     return aliases;
   }

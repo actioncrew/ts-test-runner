@@ -8,6 +8,7 @@ import { ViteConfigBuilder } from './vite-config-builder';
 import { glob } from 'glob';
 import picomatch from 'picomatch';
 import { FileDiscoveryService } from './file-discovery-service';
+import { logger } from './console-repl';
 
 // Dynamic import to avoid top-level await issues
 let viteBuild: any = null;
@@ -101,17 +102,17 @@ export class HmrManager extends EventEmitter {
 
   setFileFilter(filter: Partial<FileFilter>): void {
     this.fileFilter = { ...this.fileFilter, ...filter };
-    console.log('✅ File filter updated:', this.fileFilter);
+    logger.println(`✅ File filter updated: ${this.fileFilter}`);
   }
 
   setRebuildMode(mode: 'all' | 'selective'): void {
     this.rebuildMode = mode;
-    console.log(`✅ Rebuild mode set to: ${mode}`);
+    logger.println(`✅ Rebuild mode set to: ${mode}`);
   }
 
   setSourceChangeStrategy(strategy: SourceChangeStrategy): void {
     this.sourceChangeStrategy = strategy;
-    console.log(`✅ Source change strategy set to: ${strategy}`);
+    logger.println(`✅ Source change strategy set to: ${strategy}`);
   }
 
   private matchesFilter(filePath: string): boolean {
@@ -293,7 +294,7 @@ export class HmrManager extends EventEmitter {
         if (resolved) deps.add(norm(resolved));
       }
     } catch (error) {
-      console.warn(`⚠️  Could not extract dependencies from ${filePath}:`, (error as Error).message);
+      logger.println(`⚠️  Could not extract dependencies from ${filePath}: ${(error as Error).message}`);
     }
     return deps;
   }
@@ -414,7 +415,7 @@ export class HmrManager extends EventEmitter {
     this.watcher.on('unlinkDir', dirPath => this.handleDirectoryRemove(norm(dirPath)));
 
     this.watcher.on('ready', async () => {
-      console.log(`✅ HMR watching ${this.allFiles.length} files (mode: ${this.rebuildMode}, strategy: ${this.sourceChangeStrategy})`);
+      logger.println(`✅ HMR watching ${this.allFiles.length} files (mode: ${this.rebuildMode}, strategy: ${this.sourceChangeStrategy})`);
       this.emit('hmr:ready');
     });
   }
@@ -429,12 +430,12 @@ export class HmrManager extends EventEmitter {
         const fileType = this.isTestFile(filePath) ? 'test' : 
                         this.isSourceFile(filePath) ? 'source' : 'unknown';
         const output = norm(this.isTestFile(filePath) ? path.relative(this.config.testDir, filePath) : path.relative(this.config.srcDir, filePath)); 
-        console.log(`➕ ${capitalize(fileType)} file added: ${output}`);
+        logger.println(`➕ ${capitalize(fileType)} file added: ${output}`);
         
         this.queueRebuild(filePath, 'add');
       }
     }).catch(error => {
-      console.error('Error in handleFileAdd:', error);
+      logger.error(`❌ Error in handleFileAdd: ${error}`);
     });
     
     await this.operationQueue;
@@ -469,7 +470,7 @@ export class HmrManager extends EventEmitter {
       const fileType = this.isTestFile(filePath) ? 'test' : 
                       this.isSourceFile(filePath) ? 'source' : 'unknown';
       let output = norm(this.isTestFile(filePath) ? path.relative(this.config.testDir, filePath) : path.relative(this.config.srcDir, filePath)); 
-      console.log(`➖ ${capitalize(fileType)} file removed: ${output}`);
+      logger.println(`➖ ${capitalize(fileType)} file removed: ${output}`);
 
       // Determine update strategy
       const strategy = this.determineUpdateStrategy([filePath], 'unlink');
@@ -492,7 +493,7 @@ export class HmrManager extends EventEmitter {
         affectedFiles.forEach(f => this.queueRebuild(f, 'change'));
       }
     }).catch(error => {
-      console.error('Error in handleFileRemove:', error);
+      logger.error(`❌ Error in handleFileRemove: ${error}`);
     });
     
     await this.operationQueue;
@@ -504,7 +505,7 @@ export class HmrManager extends EventEmitter {
       dirPath = norm(dirPath);
       const dirType = dirPath.startsWith(this.config.testDir) ? 'test': 'source';
       const output = norm(dirPath.startsWith(this.config.testDir) ? path.relative(this.config.testDir, dirPath) : path.relative(this.config.srcDir, dirPath));
-      console.log(`📁 ${capitalize(dirType)} directory added: ${output}`);
+      logger.println(`📁 ${capitalize(dirType)} directory added: ${output}`);
       
       const defaultExtensions = this.fileFilter.extensions!.join(',');
       const pattern = path.join(dirPath, `**/*{${defaultExtensions}}`);
@@ -521,7 +522,7 @@ export class HmrManager extends EventEmitter {
       }
 
       if (filesToProcess.length) {
-        console.log(`📦 Found ${filesToProcess.length} ${dirType} files in new directory`);
+        logger.println(`📦 Found ${filesToProcess.length} ${dirType} files in new directory`);
         
         // Directory additions don't require full reload
         const strategy = this.determineUpdateStrategy(filesToProcess, 'addDir');
@@ -536,7 +537,7 @@ export class HmrManager extends EventEmitter {
         filesToProcess.forEach(f => this.queueRebuild(f, 'add'));
       }
     }).catch(error => {
-      console.error('Error in handleDirectoryAdd:', error);
+      logger.error(`❌ Error in handleDirectoryAdd: ${error}`);
     });
     
     await this.operationQueue;
@@ -549,7 +550,7 @@ export class HmrManager extends EventEmitter {
 
       const dirType = dirPath.startsWith(this.config.testDir) ? 'test': 'source';
       const output = norm(dirPath.startsWith(this.config.testDir) ? path.relative(this.config.testDir, dirPath) : path.relative(this.config.srcDir, dirPath));
-      console.log(`📁 ${capitalize(dirType)} directory removed: ${output}`);
+      logger.println(`📁 ${capitalize(dirType)} directory removed: ${output}`);
       
       const removedFiles = this.allFiles.filter(f => f.startsWith(dirPath + path.sep) || f === dirPath);
       const affectedFiles = new Set<string>();
@@ -592,7 +593,7 @@ export class HmrManager extends EventEmitter {
         affectedFiles.forEach(f => this.queueRebuild(f, 'change'));
       }
     }).catch(error => {
-      console.error('Error in handleDirectoryRemove:', error);
+      logger.error(`❌ Error in handleDirectoryRemove: ${error}`);
     });
     
     await this.operationQueue;
@@ -603,7 +604,7 @@ export class HmrManager extends EventEmitter {
     
     // ✅ FIX: Skip if file doesn't exist (for unlink cases)
     if (changeType !== 'unlink' && !fs.existsSync(normalized)) {
-      console.warn(`⚠️  Skipping rebuild for non-existent file: ${normalized}`);
+      logger.println(`⚠️  Skipping rebuild for non-existent file: ${normalized}`);
       return;
     }
     
@@ -618,8 +619,8 @@ export class HmrManager extends EventEmitter {
     if (!this.isRebuilding) {
       this.isRebuilding = true;
       this.rebuildPromise = this.rebuildAll().catch(error => {
-        console.error('❌ Rebuild failed:', error);
-        this.emit('hmr:error', error);
+        logger.error(`❌ Rebuild failed: ${error}`);
+        this.emit(`hmr:error ${error}`);
       }).finally(() => {
         this.isRebuilding = false;
         this.rebuildPromise = null;
@@ -637,7 +638,7 @@ export class HmrManager extends EventEmitter {
         // ✅ FIX: Filter out deleted files from ALL queues before processing
         const changedFiles = Array.from(this.rebuildQueue).filter(file => {
           if (!fs.existsSync(file)) {
-            console.warn(`⚠️  Skipping deleted file from rebuild queue: ${file}`);
+            logger.println(`⚠️  Skipping deleted file from rebuild queue: ${file}`);
             return false;
           }
           return true;
@@ -647,7 +648,7 @@ export class HmrManager extends EventEmitter {
 
         const directChangedFiles = Array.from(this.directChanges).filter(file => {
           if (!fs.existsSync(file)) {
-            console.warn(`⚠️  Skipping deleted file from direct changes: ${file}`);
+            logger.println(`⚠️  Skipping deleted file from direct changes: ${file}`);
             return false;
           }
           return true;
@@ -655,7 +656,7 @@ export class HmrManager extends EventEmitter {
         this.directChanges.clear();
 
         if (changedFiles.length === 0) {
-          console.log('⚠️  All queued files were deleted, skipping rebuild');
+          logger.println('⚠️  All queued files were deleted, skipping rebuild');
           continue;
         }
 
@@ -674,7 +675,7 @@ export class HmrManager extends EventEmitter {
         const rebuiltFiles = Array.from(filesToRebuild);
 
         if (rebuiltFiles.length === 0) {
-          console.log('⚠️  No valid files to rebuild after filtering');
+          logger.println('⚠️  No valid files to rebuild after filtering');
           continue;
         }
 
@@ -682,14 +683,14 @@ export class HmrManager extends EventEmitter {
         const validSourceFiles = rebuiltFiles.filter(f => this.isSourceFile(f) && fs.existsSync(f));
         const validTestFiles = rebuiltFiles.filter(f => this.isTestFile(f) && fs.existsSync(f));
 
-        console.log(
+        logger.println(
           `📦 Changed: ${directChangedFiles.length} files → ` +
           `Rebuilding: ${rebuiltFiles.length} files (${validSourceFiles.length} source, ${validTestFiles.length} test)`
         );
 
         // Only proceed if we have valid files to build
         if (validSourceFiles.length === 0 && validTestFiles.length === 0) {
-          console.log('⚠️  No valid source or test files to build after filtering');
+          logger.println('⚠️  No valid source or test files to build after filtering');
           continue;
         }
 
@@ -709,16 +710,16 @@ export class HmrManager extends EventEmitter {
           const result = await build(viteConfig);
           this.viteCache = result;
         } catch (buildError: any) {
-          console.error('❌ Vite build failed:', buildError);
+          logger.error(`❌ Vite build failed: ${buildError}`);
           // Check if it's due to missing entry files
           if (buildError.code === 'UNRESOLVED_ENTRY') {
-            console.log('🔄 Retrying build with filtered entry points...');
+            logger.println('🔄 Retrying build with filtered entry points...');
             // Retry with additional filtering
             const finalSourceFiles = validSourceFiles.filter(fs.existsSync);
             const finalTestFiles = validTestFiles.filter(fs.existsSync);
 
             if (finalSourceFiles.length === 0 && finalTestFiles.length === 0) {
-              console.log('⚠️  All entry points were deleted, skipping build');
+              logger.println('⚠️  All entry points were deleted, skipping build');
               continue;
             }
 
@@ -758,7 +759,7 @@ export class HmrManager extends EventEmitter {
           }
         }
 
-        console.log(`📦 Vite rebuild completed in ${Date.now() - startBuildTime}ms`);
+        logger.println(`📦 Vite rebuild completed in ${Date.now() - startBuildTime}ms`);
 
         const duration = Date.now() - startTime;
         const sourceChanges = directChangedFiles.filter(f => this.isSourceFile(f));
@@ -774,11 +775,11 @@ export class HmrManager extends EventEmitter {
           updateType
         } as RebuildStats);
 
-        console.log(`✅ Rebuild complete (${updateType}): ${rebuiltFiles.length} files in ${duration}ms`);
+        logger.println(`✅ Rebuild complete (${updateType}): ${rebuiltFiles.length} files in ${duration}ms`);
       }
     } catch (error) {
-      console.error('❌ Rebuild failed:', error);
-      this.emit('hmr:error', error);
+      logger.error(`❌ Rebuild failed: ${error}`);
+      this.emit(`hmr:error ${error}`);
       throw error;
     }
   }
@@ -820,7 +821,7 @@ export class HmrManager extends EventEmitter {
       this.watcher = null;
       this.dependencyGraph.clear();
       this.reverseDependencyGraph.clear();
-      console.log('✅ HMR watcher stopped');
+      logger.println('✅ HMR watcher stopped');
     }
   }
 }

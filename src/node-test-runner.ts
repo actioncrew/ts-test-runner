@@ -3,6 +3,7 @@ import * as path from 'path';
 import { ViteJasmineConfig } from "./vite-jasmine-config";
 import { spawn } from 'child_process';
 import { norm } from './utils';
+import { logger } from './console-repl';
 
 export class NodeTestRunner {
   constructor(private config: ViteJasmineConfig) {}
@@ -12,7 +13,7 @@ export class NodeTestRunner {
       const testRunnerPath = norm(path.join(this.config.outDir, 'test-runner.js'));
 
       if (!fs.existsSync(testRunnerPath)) {
-        console.error('❌ Test runner not found. Build may have failed.');
+        logger.error('❌ Test runner not found. Build may have failed.');
         resolve(false);
         return;
       }
@@ -29,7 +30,7 @@ export class NodeTestRunner {
       let interrupted = false;
       const sigintHandler = () => {
         interrupted = true;
-        console.log('\n\n🛑 Tests aborted by user (Ctrl+C)');
+        logger.println('\n\n🛑 Tests aborted by user (Ctrl+C)');
         child.kill('SIGINT');
       };
 
@@ -42,7 +43,7 @@ export class NodeTestRunner {
 
       child.on('error', (error) => {
         process.removeListener('SIGINT', sigintHandler);
-        console.error(`❌ Failed to run headless tests: ${error}`);
+        logger.error(`❌ Failed to run headless tests: ${error}`);
         resolve(false);
       });
     });

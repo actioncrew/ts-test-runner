@@ -3,6 +3,7 @@ import * as path from 'path';
 import { ViteJasmineConfig } from "./vite-jasmine-config";
 import { fileURLToPath } from 'url';
 import { norm } from './utils';
+import { logger } from './console-repl';
 
 export class NodeTestRunnerGenerator {
   constructor(private config: ViteJasmineConfig) {}
@@ -18,7 +19,7 @@ export class NodeTestRunnerGenerator {
       .sort();
 
     if (builtFiles.length === 0) {
-      console.warn('⚠️  No JS files found for test runner generation.');
+      logger.println('⚠️  No JS files found for test runner generation.');
       return;
     }
 
@@ -29,7 +30,7 @@ export class NodeTestRunnerGenerator {
     const runnerContent = this.generateRunnerTemplate(imports);
     const testRunnerPath = norm(path.join(outDir, 'test-runner.js'));
     fs.writeFileSync(testRunnerPath, runnerContent);
-    console.log('🤖 Generated headless test runner:', norm(path.relative(outDir, testRunnerPath)));
+    logger.println(`🤖 Generated headless test runner: ${norm(path.relative(outDir, testRunnerPath))}`);
   }
 
   private generateRunnerTemplate(imports: string): string {
@@ -41,12 +42,12 @@ const __dirname = path.dirname(__filename).replace(/\\\\/g, '/');
 
 // Global error handlers
 process.on('unhandledRejection', error => {
-  console.error('❌ Unhandled Rejection:', error);
+  console.error(\`❌ Unhandled Rejection: \${error}\`);
   process.exit(1);
 });
 
 process.on('uncaughtException', error => {
-  console.error('❌ Uncaught Exception:', error);
+  console.error(\`❌ Uncaught Exception: \${error}\`);
   process.exit(1);
 });
 
@@ -76,7 +77,7 @@ process.on('uncaughtException', error => {
 ${imports}
     await env.execute();
   } catch (error) {
-    console.error('❌ Error during test execution:', error);
+    console.error(\`❌ Error during test execution: \${error}\`);
     setImmediate(() => process.exit(1));
   } finally {
     // get failure count from the reporter

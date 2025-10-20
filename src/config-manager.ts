@@ -3,6 +3,7 @@ import * as path from 'path';
 import { ViteJasmineConfig } from "./vite-jasmine-config";
 import { norm } from './utils';
 import JSONCleaner from './json-cleaner';
+import { logger } from './console-repl';
 
 export class ConfigManager {
   static ensureConfigExists(configPath?: string): ViteJasmineConfig {
@@ -12,7 +13,7 @@ export class ConfigManager {
       try {
         return cleaner.parse(fs.readFileSync(jsonPath, 'utf-8'));
       } catch (error) {
-        console.error('❌ Failed to parse existing ts-test-runner.json', error);
+        logger.error(`❌ Failed to parse existing ts-test-runner.json ${error}`);
         return {} as ViteJasmineConfig;
       }
     }
@@ -22,9 +23,9 @@ export class ConfigManager {
     
     try {
       fs.writeFileSync(jsonPath, JSON.stringify(defaultConfig, null, 2));
-      console.log(`🆕 Created default test runner config at ${jsonPath}`);
+      logger.println(`🆕 Created default test runner config at ${jsonPath}`);
     } catch (error) {
-      console.error('❌ Failed to create default ts-test-runner.json', error);
+      logger.error(`❌ Failed to create default ts-test-runner.json ${error}`);
     }
 
     return defaultConfig;
@@ -63,13 +64,13 @@ export class ConfigManager {
     const jsonPath = norm(configPath || path.resolve(process.cwd(), 'ts-test-runner.json'));
 
     if (fs.existsSync(jsonPath)) {
-      console.log(`⚠️  Config already exists at ${jsonPath}`);
+      logger.println(`⚠️  Config already exists at ${jsonPath}`);
       return;
     }
 
     const defaultConfig = this.createDefaultConfig();
     fs.writeFileSync(jsonPath, JSON.stringify(defaultConfig, null, 2));
-    console.log(`✅ Generated default Vite Jasmine config at ${jsonPath}`);
+    logger.println(`✅ Generated default Vite Jasmine config at ${jsonPath}`);
   }
 
   static loadViteJasmineBrowserConfig(configPath?: string): ViteJasmineConfig {

@@ -3,6 +3,7 @@ import { ViteJasmineConfig } from "./vite-jasmine-config";
 import { norm } from "./utils";
 import * as fs from "fs/promises";
 import * as path from "path";
+import { logger } from "./console-repl";
 
 export class FileDiscoveryService {
   constructor(private config: ViteJasmineConfig) {}
@@ -17,7 +18,7 @@ export class FileDiscoveryService {
       let files = await glob(basePath, { absolute: true, ignore: exclude });
       return files.map((s) => norm(s));
     } catch (error) {
-      console.error("❌ Error discovering files:", error);
+      logger.error(`❌ Error discovering files: ${error}`);
       throw new Error("Failed to discover source and test files");
     }
   }
@@ -47,7 +48,7 @@ export class FileDiscoveryService {
       const specFiles = await this.scanDir(norm(this.config.testDir), '/**/*.spec.{ts,js,mjs}', ["**/node_modules/**"]);
       return { srcFiles, specFiles };
     } catch (error) {
-      console.error("❌ Error discovering files:", error);
+      logger.error(`❌ Error discovering files: ${error}`);
       throw new Error("Failed to discover source and test files");
     }
   }

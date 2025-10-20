@@ -18,6 +18,7 @@ import { CompoundReporter } from './compound-reporter';
 import { CoverageReporter } from './coverage-reporter';
 import { CoverageReportGenerator } from './coverage-report-generator';
 import { HmrManager } from './hmr-manager';
+import { logger } from './console-repl';
 
 const { build: viteBuild } = await import('vite');
 
@@ -93,7 +94,7 @@ export class ViteJasmineRunner extends EventEmitter {
 
       viteConfig.build!.rollupOptions!.input = input;
 
-      console.log(`📦 Building ${Object.keys(input).length} files...`);
+      logger.println(`📦 Building ${Object.keys(input).length} files...`);
       this.viteCache = await viteBuild(viteConfig);
 
       const jsFiles = glob
@@ -119,7 +120,7 @@ export class ViteJasmineRunner extends EventEmitter {
         this.nodeRunnerGenerator.generateTestRunner();
       }
     } catch (error) {
-      console.error('❌ Preprocessing failed:', error);
+      logger.error(`❌ Preprocessing failed: ${error}`);
       throw error;
     }
   }
@@ -142,14 +143,14 @@ export class ViteJasmineRunner extends EventEmitter {
       return this.watch();
     }
 
-    console.log(
+    logger.println(
       `🚀 Starting Jasmine Test ${this.config.headless ? 'Runner (Headless)' : 'Server'}...`
     );
 
     try {
       await this.preprocess();
     } catch (error) {
-      console.error('❌ Build failed:', error);
+      logger.error(`❌ Build failed: ${error}`);
       process.exit(1);
     }
 
@@ -158,7 +159,7 @@ export class ViteJasmineRunner extends EventEmitter {
     } else if (this.config.headless && this.config.browser === 'node') {
       await this.runHeadlessNodeMode();
     } else if (!this.config.headless && this.config.browser === 'node') {
-      console.error('❌ Invalid configuration: Node.js runner cannot run in headed mode.');
+      logger.error(`❌ Invalid configuration: Node.js runner cannot run in headed mode.`);
       process.exit(1);
     } else {
       await this.runHeadedBrowserMode();
@@ -167,18 +168,18 @@ export class ViteJasmineRunner extends EventEmitter {
 
   async watch(): Promise<void> {
     if (this.config.headless || this.config.browser === 'node') {
-      console.error('❌ --watch mode is only supported in headed browser environments.');
+      logger.error('❌ --watch mode is only supported in headed browser environments.');
       process.exit(1);
     }
 
     this.config.watch = true;
-    console.log('👀 Starting Jasmine Tests Runner in Watch Mode...');
+    logger.println('👀 Starting Jasmine Tests Runner in Watch Mode...');
     await this.preprocess();
     await this.runWatchMode();
   }
 
   private async runWatchMode(): Promise<void> {
-    console.log('🔥 Starting HMR file watcher...');
+    logger.println('🔥 Starting HMR file watcher...');
 
     const server = await this.httpServerManager.startServer();
     
@@ -188,9 +189,9 @@ export class ViteJasmineRunner extends EventEmitter {
     this.webSocketManager.enableHmr(this.hmrManager);
     await this.hmrManager.start();
 
-    console.log('📡 WebSocket server ready for real-time test reporting');
-    console.log('🔥 HMR enabled - file changes will hot reload automatically');
-    console.log('⏹️  Press Ctrl+C to stop the server');
+    logger.println('📡 WebSocket server ready for real-time test reporting');
+    logger.println('🔥 HMR enabled - file changes will hot reload automatically');
+    logger.println('⏹️  Press Ctrl+C to stop the server');
 
     this.webSocketManager.on('testsCompleted', ({ coverage }) => {
       if (this.config.coverage && coverage) {
@@ -199,7 +200,7 @@ export class ViteJasmineRunner extends EventEmitter {
     });
 
     const onBrowserClose = async () => {
-      console.log('🔄 Browser window closed');
+      logger.println('🔄 Browser window closed');
       await this.cleanup();
       process.exit(0);
     };
@@ -207,13 +208,13 @@ export class ViteJasmineRunner extends EventEmitter {
     await this.browserManager.openBrowser(this.config.port!, onBrowserClose);
 
     process.on('SIGINT', async () => {
-      console.log('🛑 Stopping HMR server...');
+      logger.println('🛑 Stopping HMR server...');
       await this.cleanup();
       process.exit(0);
     });
 
     process.on('SIGTERM', async () => {
-      console.log('🛑 Received SIGTERM, stopping HMR server...');
+      logger.println('🛑 Received SIGTERM, stopping HMR server...');
       await this.cleanup();
       process.exit(0);
     });
@@ -235,7 +236,7 @@ export class ViteJasmineRunner extends EventEmitter {
     const browserType = await this.browserManager.checkBrowser(this.config.browser!);
 
     if (!browserType) {
-      console.log('⚠️  Headless browser not available. Falling back to Node.js runner.');
+      logger.println('⚠️  Headless browser not available. Falling back to Node.js runner.');
       this.nodeRunnerGenerator.generateTestRunner();
       const success = await this.nodeTestRunner.runHeadlessTests();
       await this.cleanup();
@@ -247,7 +248,7 @@ export class ViteJasmineRunner extends EventEmitter {
       await this.cleanup();
       process.exit(testSuccess ? 0 : 1);
     } catch (error) {
-      console.error('❌ Browser test execution failed:', error);
+      logger.error(`❌ Browser test execution failed: ${error}`);
       await this.cleanup();
       process.exit(1);
     }
@@ -263,8 +264,8 @@ export class ViteJasmineRunner extends EventEmitter {
     let testsCompleted = false;
     this.webSocketManager = new WebSocketManager(this.fileDiscovery, this.config, server, this.multiReporter);
 
-    console.log('📡 WebSocket server ready for real-time test reporting');
-    console.log('⏹️  Press Ctrl+C to stop the server');
+    logger.println('📡 WebSocket server ready for real-time test reporting');
+    logger.println('⏹️  Press Ctrl+C to stop the server');
 
     this.webSocketManager.on('testsCompleted', ({ coverage }) => {
       testsCompleted = true;
@@ -275,7 +276,7 @@ export class ViteJasmineRunner extends EventEmitter {
 
     const onBrowserClose = async () => {
       if (!testsCompleted) {
-        console.warn('\n\n🔄 Browser window closed prematurely');
+        logger.println('\n\n🔄 Browser window closed prematurely');
       }
       await this.cleanup();
     };
@@ -284,7 +285,7 @@ export class ViteJasmineRunner extends EventEmitter {
 
     process.on('SIGINT', async () => {
       if (!testsCompleted) {
-        console.log('\n\n🛑 Tests aborted by user (Ctrl+C)');
+        logger.println('\n\n🛑 Tests aborted by user (Ctrl+C)');
       }
       await this.cleanup();
       process.exit(0);

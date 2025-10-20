@@ -3,6 +3,7 @@ import { CLIHandler } from './cli-handler';
 
 export { BrowserManager } from './browser-manager';
 export { CLIHandler } from './cli-handler';
+export { Logger } from './console-repl';
 export { ConfigManager } from './config-manager';
 export { ConsoleReporter } from './console-reporter';
 export { CoverageReporter } from './coverage-reporter';

@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { Reporter } from './compound-reporter';
 import { CoverageReportGenerator } from './coverage-report-generator';
+import { logger } from './console-repl';
 
 export interface CoverageReporterOptions {
   coverage: boolean;
@@ -25,7 +26,7 @@ export class CoverageReporter implements Reporter {
 
     if (this.options?.coverage) {
       if (!coverage) {
-        console.warn('⚠️  No coverage information found. Make sure code is instrumented.');
+        logger.println('⚠️  No coverage information found. Make sure code is instrumented.');
         return;
       }
       new CoverageReportGenerator().generate(coverage);
@@ -33,6 +34,6 @@ export class CoverageReporter implements Reporter {
   }
 
   testsAborted(message?: string) {
-    console.warn('⚠️  Tests aborted. Coverage may be incomplete.', message ?? '');
+    logger.println(`⚠️  Tests aborted. Coverage may be incomplete. ${message ?? ''}`);
   }
 }

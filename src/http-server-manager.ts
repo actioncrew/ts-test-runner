@@ -5,6 +5,7 @@ import { ViteJasmineConfig } from './vite-jasmine-config';
 import { fileURLToPath, parse } from 'url';
 import { extname } from 'path';
 import { norm } from './utils';
+import { logger } from './console-repl';
 
 export class HttpServerManager {
   private server: http.Server | null = null;
@@ -64,12 +65,12 @@ export class HttpServerManager {
 
     return new Promise((resolve, reject) => {
       this.server!.listen(port, () => {
-        console.log(`🚀 Test server running at http://localhost:${port}`);
+        logger.println(`🚀 Test server running at http://localhost:${port}`);
         resolve(this.server!);
       });
 
       this.server!.on('error', (error) => {
-        console.error('❌ Server error:', error);
+        logger.error(`❌ Server error: ${error}`);
         reject(error);
       });
     });
@@ -94,7 +95,7 @@ export class HttpServerManager {
     const start = Date.now();
     const { hostname, port } = new URL(url);
 
-    console.log(`⏳ Waiting for server to be ready at ${url}...`);
+    logger.println(`⏳ Waiting for server to be ready at ${url}...`);
 
     while (Date.now() - start < timeout) {
       try {

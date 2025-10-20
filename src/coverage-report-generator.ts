@@ -3,6 +3,7 @@ import libCoverage from 'istanbul-lib-coverage';
 import libReport from 'istanbul-lib-report';
 import libSourceMaps from 'istanbul-lib-source-maps';
 import libIstanbulApi from 'istanbul-api';
+import { logger } from './console-repl';
 
 export class CoverageReportGenerator {
   private reportDir: string;
@@ -13,7 +14,7 @@ export class CoverageReportGenerator {
 
   async generate(rawCoverageData: Record<string, any>): Promise<void> {
     if (!rawCoverageData || Object.keys(rawCoverageData).length === 0) {
-      console.warn('⚠️  No coverage data received.');
+      logger.println('⚠️  No coverage data received.');
       return;
     }
 
@@ -36,6 +37,6 @@ export class CoverageReportGenerator {
     reporter.addAll(['html', 'lcov', 'text']);
     reporter.write(remappedCoverage, true);
 
-    console.log(`✅ Coverage reports generated successfully in ${this.reportDir}`);
+    logger.println(`✅ Coverage reports generated successfully in ${this.reportDir}`);
   }
 }
