@@ -426,7 +426,6 @@ export class ConsoleReporter {
       : (Date.now() - this.startTime) / 1000;
     
     this.clearCurrentLine();
-    this.print('\n');
 
     if (this.failedSpecs.length > 0) {
       this.printFailures();
@@ -436,7 +435,6 @@ export class ConsoleReporter {
       this.printPendingSpecs();
     }
 
-    this.print('\n');
     this.printSummary(totalTime);
     
     this.print('\n');
@@ -656,9 +654,6 @@ export class ConsoleReporter {
       // Extra spacing between specs
       this.print('\n');
     });
-
-    this.print('\n');
-    this.printDivider();
   }
 
   private printPendingSpecs() {
@@ -672,9 +667,6 @@ export class ConsoleReporter {
         this.print(`    ${this.colored('yellow', spec.pendingReason)}\n`);
       }
     });
-    
-    this.print('\n');
-    this.printDivider();
   }
 
   private printFinalStatus(overallStatus?: string) {
