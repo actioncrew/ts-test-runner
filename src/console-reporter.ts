@@ -117,109 +117,101 @@ export class ConsoleReporter {
   private createRootSuite(): TestSuite {
     return {
       id: 'root',
-      description: 'Root Suite',
-      fullName: '',
+      description: 'Route Suite',
+      fullName: 'root',
       specs: [],
-      children: []
+      children: [],
+      status: 'skipped'
     };
   }
 
   private buildSuiteTree(config: any) {
-  // Create root suite
-  this.rootSuite = {
-    id: 'root',
-    description: '(root)',
-    fullName: '(root)',
-    specs: [],
-    children: [],
-    status: 'skipped'
-  };
+    // Create root suite
+    this.rootSuite = this.createRootSuite();
+    this.suiteById.clear();
+    this.specById.clear();
+    this.suiteStack = [this.rootSuite];
+    this.currentSuite = null;
+    this.currentSpec = null;
 
-  this.suiteById.clear();
-  this.specById.clear();
-  this.suiteStack = [this.rootSuite];
-  this.currentSuite = null;
-  this.currentSpec = null;
+    this.suiteById.set('root', this.rootSuite);
 
-  this.suiteById.set('root', this.rootSuite);
+    // 1️⃣ Register suites
+    if (config.orderedSuites) {
+      config.orderedSuites.forEach((suiteConfig: any) => {
+        const suite = {
+          id: suiteConfig.id,
+          description: this.normalizeDescription(suiteConfig.description ?? suiteConfig.id),
+          fullName: suiteConfig.fullName ?? suiteConfig.id,
+          specs: [],
+          children: [],
+          parent: undefined,
+          status: 'skipped' as const // default until executed
+        };
+        this.suiteById.set(suite.id, suite);
+      });
+    }
 
-  // 1️⃣ Register suites
-  if (config.orderedSuites) {
-    config.orderedSuites.forEach((suiteConfig: any) => {
-      const suite = {
-        id: suiteConfig.id,
-        description: this.normalizeDescription(suiteConfig.description ?? suiteConfig.id),
-        fullName: suiteConfig.fullName ?? suiteConfig.id,
-        specs: [],
-        children: [],
-        parent: undefined,
-        status: 'skipped' as const // default until executed
-      };
-      this.suiteById.set(suite.id, suite);
-    });
-  }
+    // 2️⃣ Attach specs to their suites (skip root)
+    if (config.orderedSpecs) {
+      config.orderedSpecs.forEach((specConfig: any) => {
+        const spec = {
+          id: specConfig.id,
+          description: specConfig.description ?? specConfig.id,
+          fullName: specConfig.fullName ?? specConfig.id,
+          status: 'skipped' as const
+        };
 
-  // 2️⃣ Attach specs to their suites (skip root)
-  if (config.orderedSpecs) {
-    config.orderedSpecs.forEach((specConfig: any) => {
-      const spec = {
-        id: specConfig.id,
-        description: specConfig.description ?? specConfig.id,
-        fullName: specConfig.fullName ?? specConfig.id,
-        status: 'skipped' as const
-      };
+        this.specById.set(spec.id, spec);
 
-      this.specById.set(spec.id, spec );
+        const parentSuiteId =
+          specConfig.suiteId ?? this.findSuiteIdForSpec(specConfig);
+        const parentSuite = this.suiteById.get(parentSuiteId);
 
-      const parentSuiteId =
-        specConfig.suiteId ?? this.findSuiteIdForSpec(specConfig);
-      const parentSuite = this.suiteById.get(parentSuiteId);
-
-      if (parentSuite && parentSuite.id !== 'root') {
-        parentSuite.specs.push(spec);
-      } else {
-        // orphaned spec → does not belong to any known suite
-        this.print(
-          `⚠️  Orphan spec "${spec.description}" (id: ${spec.id}) has no valid suite, attaching to root.`
-        );
-        this.rootSuite.specs.push(spec);
-      }
-    });
-  }
-
-  // 3️⃣ Attach suites to their parents
-  if (config.orderedSuites) {
-    config.orderedSuites.forEach((suiteConfig: any) => {
-      const suite = this.suiteById.get(suiteConfig.id);
-      if (!suite) return;
-
-      const parentSuiteId =
-        suiteConfig.parentSuiteId ?? this.findParentSuiteId(suiteConfig);
-      const parentSuite =
-        this.suiteById.get(parentSuiteId) ?? this.rootSuite;
-
-      if (parentSuite.id !== suite.id) {
-        suite.parent = parentSuite;
-        if (!parentSuite.children.includes(suite)) {
-          parentSuite.children.push(suite);
+        if (parentSuite && parentSuite.id !== 'root') {
+          parentSuite.specs.push(spec);
+        } else {
+          // orphaned spec → does not belong to any known suite
+          this.print(
+            `⚠️  Orphan spec "${spec.description}" (id: ${spec.id}) has no valid suite, attaching to root.`
+          );
+          this.rootSuite.specs.push(spec);
         }
-      }
-    });
+      });
+    }
+
+    // 3️⃣ Attach suites to their parents
+    if (config.orderedSuites) {
+      config.orderedSuites.forEach((suiteConfig: any) => {
+        const suite = this.suiteById.get(suiteConfig.id);
+        if (!suite) return;
+
+        const parentSuiteId =
+          suiteConfig.parentSuiteId ?? this.findParentSuiteId(suiteConfig);
+        const parentSuite =
+          this.suiteById.get(parentSuiteId) ?? this.rootSuite;
+
+        if (parentSuite.id !== suite.id) {
+          suite.parent = parentSuite;
+          if (!parentSuite.children.includes(suite)) {
+            parentSuite.children.push(suite);
+          }
+        }
+      });
+    }
+
+    // 4️⃣ Clean up root specs (optional)
+    if (this.rootSuite.specs.length > 0) {
+      this.print(
+        `⚠️  ${this.rootSuite.specs.length} orphan specs attached directly to root.`
+      );
+    }
+
+    // Debug summary
+    const totalSuites = this.suiteById.size - 1;
+    const totalSpecs = this.specById.size;
+    this.print(`🧩 Suite tree built (${totalSuites} suites, ${totalSpecs} specs).`);
   }
-
-  // 4️⃣ Clean up root specs (optional)
-  if (this.rootSuite.specs.length > 0) {
-    this.print(
-      `⚠️  ${this.rootSuite.specs.length} orphan specs attached directly to root.`
-    );
-  }
-
-  // Debug summary
-  const totalSuites = this.suiteById.size - 1;
-  const totalSpecs = this.specById.size;
-  this.print(`🧩 Suite tree built (${totalSuites} suites, ${totalSpecs} specs).`);
-}
-
 
   private normalizeDescription(desc: any): string {
     if (typeof desc === 'string') return desc;
@@ -301,19 +293,37 @@ export class ConsoleReporter {
   }
 
   suiteStarted(config: any) {
-    const suite: TestSuite = {
-      id: config.id,
-      description: config.description,
-      fullName: config.fullName,
-      specs: [],
-      children: [],
-      parent: this.suiteStack[this.suiteStack.length - 1]
-    };
-    
-    this.suiteStack[this.suiteStack.length - 1].children.push(suite);
+    // Try to get or create the suite node
+    let suite = this.suiteById.get(config.id);
+    const parentSuite = this.suiteStack[this.suiteStack.length - 1];
+
+    if (!suite) {
+      // Create new suite node if not built from config
+      suite = {
+        id: config.id,
+        description: config.description,
+        fullName: config.fullName,
+        specs: [],
+        children: [],
+        parent: parentSuite,
+        status: 'running'
+      };
+      this.suiteById.set(suite.id, suite);
+    } else {
+      suite.status = 'running';
+      suite.parent = parentSuite;
+    }
+
+    // Attach to parent if not already
+    if (parentSuite && !parentSuite.children.includes(suite)) {
+      parentSuite.children.push(suite);
+    }
+
+    // Push to stack
     this.suiteStack.push(suite);
     this.currentSuite = suite;
-    
+
+    // UI feedback
     if (config.description) {
       this.clearCurrentLine();
       this.printSuiteLine(suite, false);
@@ -321,49 +331,61 @@ export class ConsoleReporter {
   }
 
   specStarted(config: any) {
-    const spec: TestSpec = {
+    const spec = this.specById.get(config.id) ?? {
       id: config.id,
       description: config.description,
       fullName: config.fullName,
       status: 'running'
     };
-    
+
+    spec.status = 'running';
+    this.specById.set(spec.id, spec);
     this.currentSpec = spec;
-    
+
+    // Attach to current suite
     if (this.currentSuite) {
-      this.currentSuite.specs.push(spec);
+      if (!this.currentSuite.specs.includes(spec)) {
+        this.currentSuite.specs.push(spec);
+      }
+    } else {
+      // Fallback to root if somehow outside any suite
+      this.rootSuite.specs.push(spec);
     }
-    
+
     this.updateStatusLine();
   }
 
   specDone(result: any) {
     this.specCount++;
-    
-    if (this.currentSpec) {
-      this.currentSpec.status = result.status;
-      this.currentSpec.duration = result.duration;
-      this.currentSpec.failedExpectations = result.failedExpectations;
-      this.currentSpec.pendingReason = result.pendingReason;
+
+    const spec = this.specById.get(result.id);
+    if (spec) {
+      spec.status = result.status;
+      spec.duration = result.duration;
+      spec.failedExpectations = result.failedExpectations;
+      spec.pendingReason = result.pendingReason;
     }
-    
+
     switch (result.status) {
-      case 'passed': 
-        this.executableSpecCount++; 
+      case 'passed':
+        this.executableSpecCount++;
         break;
-      case 'failed': 
-        this.failureCount++; 
-        this.failedSpecs.push(result); 
-        this.executableSpecCount++; 
+      case 'failed':
+        this.failureCount++;
+        this.failedSpecs.push(result);
+        this.executableSpecCount++;
         break;
-      case 'pending': 
-        this.pendingSpecs.push(result); 
-        this.executableSpecCount++; 
+      case 'pending':
+        this.pendingSpecs.push(result);
+        this.executableSpecCount++;
+        break;
+      default:
         break;
     }
-    
+
     this.currentSpec = null;
-    
+
+    // Update suite display
     if (this.currentSuite) {
       this.clearCurrentLine();
       this.printSuiteLine(this.currentSuite, false);
@@ -372,16 +394,20 @@ export class ConsoleReporter {
   }
 
   suiteDone(result: any) {
+    const suite = this.suiteStack[this.suiteStack.length - 1];
+    if (!suite) return;
+
+    // Mark suite result
+    suite.status = this.determineSuiteStatusFromInternal(suite);
+
+    // Optional UI output
     this.clearCurrentLine();
-    if (this.currentSuite) {
-      this.printSuiteLine(this.currentSuite, true);
-      this.print('\n');
-    }
-    
+    this.printSuiteLine(suite, true);
+    this.print('\n');
+
+    // Pop from stack
     this.suiteStack.pop();
-    this.currentSuite = this.suiteStack.length > 0 
-      ? this.suiteStack[this.suiteStack.length - 1] 
-      : null;
+    this.currentSuite = this.suiteStack[this.suiteStack.length - 1] ?? null;
   }
 
   jasmineDone(result: any) {
@@ -436,6 +462,68 @@ export class ConsoleReporter {
     this.printSummary(totalTime);
     
     this.print('\n');
+  }
+
+  private determineSuiteStatusFromInternal(suite: TestSuite): 'passed' | 'failed' | 'pending' | 'skipped' | 'incomplete' {
+    if (!suite) return 'skipped';
+
+    let hasFailed = false;
+    let hasPending = false;
+    let hasSkipped = false;
+    let hasRunning = false;
+    let hasPassed = false;
+
+    // --- Check specs ---
+    for (const spec of suite.specs) {
+      switch (spec.status) {
+        case 'failed':
+          hasFailed = true;
+          break;
+        case 'pending':
+          hasPending = true;
+          break;
+        case 'skipped':
+          hasSkipped = true;
+          break;
+        case 'running':
+          hasRunning = true;
+          break;
+        case 'passed':
+          hasPassed = true;
+          break;
+      }
+    }
+
+    // --- Check children ---
+    for (const child of suite.children) {
+      const childStatus = this.determineSuiteStatusFromInternal(child);
+      switch (childStatus) {
+        case 'failed':
+          hasFailed = true;
+          break;
+        case 'pending':
+          hasPending = true;
+          break;
+        case 'skipped':
+          hasSkipped = true;
+          break;
+        case 'incomplete':
+          hasRunning = true;
+          break;
+        case 'passed':
+          hasPassed = true;
+          break;
+      }
+    }
+
+    // --- Compute final status ---
+    if (hasFailed) return 'failed';
+    if (hasPending) return 'pending';
+    if (hasRunning) return 'incomplete';
+    if (hasSkipped && !hasPassed) return 'skipped';
+    if (hasPassed) return 'passed';
+
+    return 'skipped'; // default fallback
   }
 
   private setupInterruptHandler() {
@@ -637,7 +725,7 @@ export class ConsoleReporter {
     let hasProblems = false;
 
     this.rootSuite.children.forEach(childSuite => {
-      if (this.printProblemSuite(childSuite, 0)) {
+      if (this.printProblemSuite(childSuite, 1)) {
         hasProblems = true;
       }
     });
@@ -706,83 +794,71 @@ export class ConsoleReporter {
   }
 
   private printProblemSuite(suite: TestSuite, indentLevel: number): boolean {
-    // Skip root suite
-    if (suite.id === 'root') {
-      return false;
-    }
+    if (suite.id === 'root') return false;
 
     const indent = '  '.repeat(indentLevel);
     let hasProblems = false;
 
-    // Check if this suite or any of its children has problems
+    // Determine if this suite itself is problematic
     const isProblemSuite = suite.status &&
-      (suite.status === 'failed' || suite.status === 'pending' || suite.status === 'incomplete');
+      (suite.status === 'failed' ||
+      suite.status === 'pending' ||
+      suite.status === 'incomplete' ||
+      suite.status === 'skipped');
 
     let childHasProblems = false;
 
-    // First, check children to determine if we should show this suite
-    suite.children.forEach(child => {
+    // Recursively inspect child suites
+    for (const child of suite.children) {
       if (this.printProblemSuite(child, indentLevel + 1)) {
         childHasProblems = true;
         hasProblems = true;
       }
-    });
+    }
 
-    // Only print if this suite has actual problems (not just skipped)
+    // If this suite or any child has problems, we show it
     if (isProblemSuite || childHasProblems) {
       hasProblems = true;
 
-      if (isProblemSuite && suite.status !== 'skipped') {
-        const { symbol, color } = this.getSuiteSymbol(suite.status!);
-        const specCount = suite.specs.length;
-        const executedSpecs = suite.specs.filter(s => s.status && s.status !== 'skipped');
+      const specCount = suite.specs.length;
+      const executedSpecs = suite.specs.filter(s => s.status && s.status !== 'skipped');
+      const failedCount = suite.specs.filter(s => s.status === 'failed').length;
+      const pendingCount = suite.specs.filter(s => s.status === 'pending').length;
+      const runningCount = suite.specs.filter(s => s.status === 'running').length;
+      const undefinedCount = suite.specs.filter(s => !s.status).length;
 
-        // Build status details
-        const statusDetails: string[] = [];
+      const statusDetails: string[] = [];
 
-        if (suite.status === 'failed') {
-          const failedCount = suite.specs.filter(s => s.status === 'failed').length;
-          if (failedCount > 0) statusDetails.push(`${failedCount} failed`);
-        }
+      if (failedCount > 0) statusDetails.push(`${failedCount} failed`);
+      if (pendingCount > 0) statusDetails.push(`${pendingCount} pending`);
+      if (runningCount > 0) statusDetails.push(`${runningCount} running`);
+      if (undefinedCount > 0) statusDetails.push(`${undefinedCount} not run`);
 
-        if (suite.status === 'pending') {
-          const pendingCount = suite.specs.filter(s => s.status === 'pending').length;
-          if (pendingCount > 0) statusDetails.push(`${pendingCount} pending`);
-        }
+      if (executedSpecs.length > 0) {
+        statusDetails.push(`${executedSpecs.length}/${specCount} executed`);
+      } else if (specCount > 0) {
+        statusDetails.push(`${specCount} specs`);
+      }
 
-        if (suite.status === 'incomplete') {
-          const runningCount = suite.specs.filter(s => s.status === 'running').length;
-          const undefinedCount = suite.specs.filter(s => !s.status).length;
-          if (runningCount > 0) statusDetails.push(`${runningCount} running`);
-          if (undefinedCount > 0) statusDetails.push(`${undefinedCount} not run`);
-        }
+      const childCount = suite.children.length;
+      if (childCount > 0) {
+        statusDetails.push(`${childCount} child suite${childCount !== 1 ? 's' : ''}`);
+      }
 
-        if (executedSpecs.length > 0) {
-          statusDetails.push(`${executedSpecs.length}/${specCount} executed`);
-        } else if (specCount > 0) {
-          statusDetails.push(`${specCount} specs`);
-        }
+      const details = statusDetails.length > 0
+        ? this.colored('gray', ` (${statusDetails.join(', ')})`)
+        : '';
 
-        const childCount = suite.children.length;
-        if (childCount > 0) {
-          statusDetails.push(`${childCount} child suite${childCount !== 1 ? 's' : ''}`);
-        }
+      // Pick symbol and color based on status
+      const { symbol, color } = this.getSuiteSymbol(suite.status!);
 
-        const details = statusDetails.length > 0
-          ? this.colored('gray', ` (${statusDetails.join(', ')})`)
-          : '';
-
+      // Always print problem suites (including skipped)
+      if (isProblemSuite) {
         this.print(`${indent}${this.colored(color, symbol)} ${suite.description}${details}\n`);
-      } else if (childHasProblems && !isProblemSuite) {
-        // Show parent suite as a grouping even if it doesn't have problems itself
-        // but only if it has children with actual problems (not just skipped)
-        const hasNonSkippedChildProblems = suite.children.some(child =>
-          child.status && child.status !== 'skipped' && child.status !== 'passed'
-        );
-
-        if (hasNonSkippedChildProblems) {
-          this.print(`${indent}${this.colored('brightBlue', '↳')} ${this.colored('dim', suite.description)}\n`);
-        }
+      }
+      // Group non-problem parents with problematic children
+      else if (childHasProblems) {
+        this.print(`${indent}${this.colored('brightBlue', '↳')} ${this.colored('dim', suite.description)}\n`);
       }
     }
 
@@ -796,7 +872,7 @@ export class ConsoleReporter {
       case 'pending':
         return { symbol: '○', color: 'brightYellow' };
       case 'skipped':
-        return { symbol: '⊘', color: 'gray' };
+        return { symbol: '⤼', color: 'gray' };
       case 'incomplete':
         return { symbol: '◷', color: 'cyan' };
       case 'passed':
