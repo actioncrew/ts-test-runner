@@ -119,7 +119,7 @@ export class ConsoleReporter {
     return {
       id: 'suite0',
       description: 'Jasmine__TopLevel__Suite',
-      fullName: 'suite0',
+      fullName: '',
       specs: [],
       children: [],
       status: 'skipped'
@@ -228,13 +228,13 @@ export class ConsoleReporter {
     // If we have a fullName, try to match it with suite fullNames
     if (specConfig.fullName) {
       for (const [id, suite] of this.suiteById) {
-        if (id !== 'root' && specConfig.fullName.startsWith(suite.fullName)) {
+        if (id !== this.rootSuite.id && specConfig.fullName.startsWith(suite.fullName)) {
           return id;
         }
       }
     }
     
-    return 'root';
+    return this.rootSuite.id;
   }
 
   private findParentSuiteId(suiteConfig: any): string {
@@ -253,7 +253,7 @@ export class ConsoleReporter {
       }
     }
     
-    return 'root';
+    return this.rootSuite.id;
   }
 
   userAgent(message: any) {
@@ -571,10 +571,7 @@ export class ConsoleReporter {
     const suiteNameLength = displayName.replace(/\.\.\.$/, '').length + (displayName.includes('...') ? 3 : 0);
     const dotsLength = this.countVisualDots(displayDots);
 
-    let padding = ' '.repeat(Math.max(0, availableWidth - suiteNameLength - dotsLength + 1));
-
-    // Shift dots right by one: add a space
-    displayDots = ' ' + displayDots;
+    let padding = ' '.repeat(Math.max(0, availableWidth - suiteNameLength - dotsLength - 1));
 
     this.print(prefix + this.colored('brightBlue', displayName) + padding + displayDots);
 
