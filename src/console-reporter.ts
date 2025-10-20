@@ -25,7 +25,7 @@ interface TestSpec {
   id: string;
   description: string;
   fullName: string;
-  status: 'passed' | 'failed' | 'pending' | 'running';
+  status: 'passed' | 'failed' | 'pending' | 'running' | 'skipped';
   duration?: number;
   failedExpectations?: any[];
   pendingReason?: string;
@@ -38,6 +38,7 @@ interface TestSuite {
   specs: TestSpec[];
   children: TestSuite[];
   parent?: TestSuite;
+  status?: 'passed' | 'failed' | 'pending' | 'running' | 'skipped' | 'incomplete';
 }
 
 export class ConsoleReporter {
@@ -51,26 +52,29 @@ export class ConsoleReporter {
   private ansi: Record<string, string>;
   private startTime: number;
   private jasmineReady: Promise<void>;
+  private config: any | null = null;
   private resolveJasmineReady: (() => void) | null;
   private envInfo: EnvironmentInfo | null;
-  private testConfig: any;
   private rootSuite: TestSuite;
   private currentSuite: TestSuite | null;
   private suiteStack: TestSuite[];
   private currentSpec: TestSpec | null;
+  private suiteById: Map<string, TestSuite> = new Map();
+  private specById: Map<string, TestSpec> = new Map();
   private readonly lineWidth: number = 60;
   private interruptHandlersRegistered: boolean = false;
 
   constructor() {
     this.print = (...args) => process.stdout.write(util.format(...args));
     this.showColors = this.detectColorSupport();
+    this.config = null;
     this.specCount = 0;
     this.executableSpecCount = 0;
     this.failureCount = 0;
     this.failedSpecs = [];
     this.pendingSpecs = [];
     this.startTime = 0;
-    
+
     // Fixed: Initialize both properties correctly
     let resolveFunc: (() => void) | null = null;
     this.jasmineReady = new Promise((resolve) => {
@@ -79,7 +83,6 @@ export class ConsoleReporter {
     this.resolveJasmineReady = resolveFunc;
     
     this.envInfo = null;
-    this.testConfig = null;
     this.rootSuite = this.createRootSuite();
     this.currentSuite = null;
     this.suiteStack = [this.rootSuite];
@@ -121,6 +124,110 @@ export class ConsoleReporter {
     };
   }
 
+   private buildSuiteTree(config: any) {
+    this.rootSuite = this.createRootSuite();
+    this.suiteById.clear();
+    this.specById.clear();
+    this.suiteStack = [this.rootSuite];
+    this.currentSuite = null;
+    this.currentSpec = null;
+
+    this.suiteById.set('root', this.rootSuite);
+
+    // Create all suites first
+    if (config.orderedSuites) {
+      config.orderedSuites.forEach((suiteConfig: any) => {
+        const suite: TestSuite = {
+          id: suiteConfig.id,
+          description: this.normalizeDescription(suiteConfig.description ?? suiteConfig.id),
+          fullName: suiteConfig.fullName ?? suiteConfig.id,
+          specs: [],
+          children: [],
+          status: 'skipped' // Default until we know it will run
+        };
+        
+        this.suiteById.set(suite.id, suite);
+      });
+    }
+
+    // Create all specs and attach to suites
+    if (config.orderedSpecs) {
+      config.orderedSpecs.forEach((specConfig: any) => {
+        const spec: TestSpec = {
+          id: specConfig.id,
+          description: specConfig.description ?? specConfig.id,
+          fullName: specConfig.fullName ?? specConfig.id,
+          status: 'skipped'
+        };
+        
+        this.specById.set(spec.id, spec);
+        
+        // Find parent suite and attach
+        const parentSuiteId = specConfig.suiteId ?? this.findSuiteIdForSpec(specConfig);
+        const parentSuite = this.suiteById.get(parentSuiteId) ?? this.rootSuite;
+        parentSuite.specs.push(spec);
+      });
+    }
+
+    // Build hierarchy - connect suites to their parents
+    if (config.orderedSuites) {
+      config.orderedSuites.forEach((suiteConfig: any) => {
+        const suite = this.suiteById.get(suiteConfig.id);
+        if (!suite) return;
+
+        const parentSuiteId = suiteConfig.parentSuiteId ?? this.findParentSuiteId(suiteConfig);
+        const parentSuite = this.suiteById.get(parentSuiteId) ?? this.rootSuite;
+        
+        suite.parent = parentSuite;
+        if (!parentSuite.children.includes(suite)) {
+          parentSuite.children.push(suite);
+        }
+      });
+    }
+  }
+
+  private normalizeDescription(desc: any): string {
+    if (typeof desc === 'string') return desc;
+    if (desc?.en) return desc.en;
+    return JSON.stringify(desc);
+  }
+
+  private findSuiteIdForSpec(specConfig: any): string {
+    // Try to find suite ID from spec's fullName or other hints
+    // This is a fallback - ideally suiteId should be in the config
+    if (specConfig.suiteId) return specConfig.suiteId;
+    
+    // If we have a fullName, try to match it with suite fullNames
+    if (specConfig.fullName) {
+      for (const [id, suite] of this.suiteById) {
+        if (id !== 'root' && specConfig.fullName.startsWith(suite.fullName)) {
+          return id;
+        }
+      }
+    }
+    
+    return 'root';
+  }
+
+  private findParentSuiteId(suiteConfig: any): string {
+    if (suiteConfig.parentSuiteId) return suiteConfig.parentSuiteId;
+    
+    // Try to deduce from fullName
+    if (suiteConfig.fullName) {
+      const parts = suiteConfig.fullName.split(' ');
+      if (parts.length > 1) {
+        const parentFullName = parts.slice(0, -1).join(' ');
+        for (const [id, suite] of this.suiteById) {
+          if (suite.fullName === parentFullName) {
+            return id;
+          }
+        }
+      }
+    }
+    
+    return 'root';
+  }
+
   userAgent(message: any) {
     this.envInfo = this.gatherEnvironmentInfo();
     const userAgent = { ...message };
@@ -141,21 +248,21 @@ export class ConsoleReporter {
     this.specCount = 0;
     this.executableSpecCount = 0;
     this.failureCount = 0;
+    this.config = config;
     this.failedSpecs = [];
     this.pendingSpecs = [];
-    this.testConfig = config;
     this.rootSuite = this.createRootSuite();
     this.suiteStack = [this.rootSuite];
     this.currentSuite = null;
     this.currentSpec = null;
     
+    this.buildSuiteTree(config);
     this.setupInterruptHandler();
     
     this.print('\n');
     this.printBox('Test Runner Started', 'cyan');
     this.printEnvironmentInfo();
     this.printTestConfiguration(config);
-    this.print('\n');
   }
 
   suiteStarted(config: any) {
@@ -247,8 +354,8 @@ export class ConsoleReporter {
       ? result.totalTime / 1000 
       : (Date.now() - this.startTime) / 1000;
     
-    this.print('\n\n');
-    this.printDivider();
+    this.clearCurrentLine();
+    this.print('\n');
 
     if (this.failedSpecs.length > 0) {
       this.printFailures();
@@ -270,10 +377,29 @@ export class ConsoleReporter {
   }
 
   testsAborted(message?: string) {
+    // Clear the status line (which is on the line above)
+    this.print('\r\x1b[1A'); // Move up one line
+    this.clearCurrentLine();  // Clear that line
+    this.clearCurrentLine();  // Clear current line
     this.print('\n\n');
     this.printBox(`✕ TESTS ABORTED${message ? ': ' + message : ''}`, 'red');
     this.print('\n');
+    
+    // Calculate elapsed time
+    const totalTime = (Date.now() - this.startTime) / 1000;
+    
+    // Print failures if any
+    if (this.failedSpecs.length > 0) {
+      this.printFailures();
+    }
+    
+    // Print test tree
     this.printTestTree();
+    
+    // Print summary
+    this.print('\n');
+    this.printSummary(totalTime);
+    
     this.print('\n');
   }
 
@@ -281,11 +407,31 @@ export class ConsoleReporter {
     if (this.interruptHandlersRegistered) return;
     
     const handler = () => {
-      this.print('\n\n');
+      // Clear the status line (which is on the line above)
+      this.print('\r\x1b[1A'); // Move up one line
+      this.clearCurrentLine();  // Clear that line
+      this.clearCurrentLine();  // Clear current line
+      this.print('\n');
+      
+      // Calculate elapsed time
+      const totalTime = (Date.now() - this.startTime) / 1000;
+      
+      // Print failures if any
+      if (this.failedSpecs.length > 0) {
+        this.printFailures();
+      }
+      
+      // Print test tree
+      this.printTestTree();
+      
+      // Print summary
+      this.print('\n');
+      this.printSummary(totalTime);
+      
+      this.print('\n');
       this.printBox('✕ TESTS INTERRUPTED', 'yellow');
       this.print('\n');
-      this.printTestTree();
-      this.print('\n');
+      
       process.exit(1);
     };
     
@@ -299,11 +445,10 @@ export class ConsoleReporter {
     
     const suiteName = this.currentSuite.description;
     const passed = this.executableSpecCount - this.failureCount - this.pendingSpecs.length;
-    const statusText = `  ${this.colored('dim', '→')} ${suiteName} ${this.colored('gray', `[${passed}/${this.executableSpecCount} passed]`)}`;
-    
+    const statusText = `\n  ${this.colored('dim', '→')} ${suiteName} ${this.colored('gray', `[${passed}/${this.executableSpecCount} passed]`)}`;
     this.clearCurrentLine();
     this.print(statusText);
-    this.print('\r');
+    this.print('\r\x1b[1A');
   }
 
   private clearCurrentLine() {
@@ -343,7 +488,7 @@ export class ConsoleReporter {
       case 'passed':
         return this.colored('brightGreen', '●');
       case 'failed':
-        return this.colored('brightRed', '✕');
+        return this.colored('brightRed', '⨯');
       case 'pending':
         return this.colored('brightYellow', '○');
       default:
@@ -372,28 +517,45 @@ export class ConsoleReporter {
   private printFailures() {
     this.print('\n');
     this.printSectionHeader('FAILURES', 'red');
-    this.print('\n');
-    
-    this.failedSpecs.forEach((spec, i) => {
-      this.print('\n');
-      this.print(this.colored('bold', `  ${i + 1}) ${spec.fullName}\n`));
-      this.print(this.colored('gray', `     ${spec.fullName.split(' ').slice(0, -1).join(' ')}\n`));
-      
+    this.print(this.colored('red', '  ────────────────────────────────────────────────────────────\n'));
+
+    if (!this.failedSpecs.length) return;
+
+    this.failedSpecs.forEach((spec, idx) => {
+      // Print numbered spec header
+      const header = `  ${idx + 1}) ${spec.fullName}`;
+      this.print(this.colored('bold', header + '\n'));
+
       if (spec.failedExpectations?.length > 0) {
-        spec.failedExpectations.forEach((expectation: any) => {
-          this.print('\n');
-          this.print(this.colored('brightRed', `     ✕ ${expectation.message}\n`));
-          
+        spec.failedExpectations.forEach((expectation: any, exIndex: number) => {
+          const marker = this.colored('brightRed', '✕');
+          const messageLines = (expectation.message || '').split('\n').map((l: string) => l.trim());
+
+          // Print the failure message, all aligned to same margin
+          this.print(`  ${marker} ${this.colored('brightRed', messageLines[0])}\n`);
+
+          // Continuation lines of same message
+          for (let li = 1; li < messageLines.length; li++) {
+            this.print(`    ${this.colored('brightRed', messageLines[li])}\n`);
+          }
+
+          // Stack trace — lightly indented and gray
           if (expectation.stack) {
-            const stackLines = expectation.stack.split('\n').slice(1, 4);
+            const stackLines = expectation.stack.split('\n').slice(1, 6).map((l: string) => l.trim());
             stackLines.forEach((line: string) => {
-              this.print(this.colored('gray', `       ${line.trim()}\n`));
+              this.print(this.colored('gray', `      at ${line}\n`));
             });
           }
+
+          // Space between multiple expectations for same spec
+          if (exIndex < spec.failedExpectations.length - 1) this.print('\n');
         });
       }
+
+      // Extra spacing between specs
+      this.print('\n');
     });
-    
+
     this.print('\n');
     this.printDivider();
   }
@@ -430,62 +592,139 @@ export class ConsoleReporter {
   }
 
   private printTestTree() {
-    this.print(this.colored('bold', '  Test Results Tree\n'));
-    this.print(this.colored('gray', '  ────────────────────────────────────────────────────────────\n\n'));
-    
-    this.printSuiteTree(this.rootSuite, 0, true);
+    if (!this.config) return;
+
+    const { orderedSuites = [], orderedSpecs = [], specById = {}, suiteById = {} } = this.config;
+
+    this.print(this.colored('bold', '  Problem Suites\n'));
+    this.print(this.colored('gray', '  ────────────────────────────────────────────────────────────\n'));
+
+    // Build suite map with specs
+    const suiteMap: Record<string, { description: string; specs: TestSpec[] }> = {};
+
+    // Initialize suites
+    orderedSuites.forEach((suite: any)  => {
+      let desc = suite.description ?? suite.id;
+      if (typeof desc !== 'string') {
+        if (desc?.en) desc = desc.en;
+        else desc = JSON.stringify(desc);
+      }
+      suiteMap[suite.id] = { description: desc, specs: [] };
+    });
+
+    // Attach specs
+    orderedSpecs.forEach((spec: any) => {
+      const info = specById[spec.id];
+      const specStatus: TestSpec = {
+        id: spec.id,
+        description: spec.description ?? spec.id,
+        fullName: spec.fullName ?? spec.id,
+        status: info?.status ?? 'skipped',
+        duration: info?.duration,
+        failedExpectations: info?.failedExpectations,
+        pendingReason: info?.pendingReason
+      };
+
+      const suiteId = info?.suiteId ?? 'unknown';
+      if (!suiteMap[suiteId]) {
+        suiteMap[suiteId] = { description: suiteId, specs: [] };
+      }
+      suiteMap[suiteId].specs.push(specStatus);
+    });
+
+    // Print only problem suites
+    orderedSuites.forEach((suite: any) => {
+      const s = suiteMap[suite.id];
+      if (!s) return;
+
+      const specs = s.specs;
+      const hasFailed = specs.some(sp => sp.status === 'failed');
+      const hasPending = specs.some(sp => sp.status === 'pending');
+      const hasSkipped = specs.some(sp => sp.status === 'skipped');
+      const hasIncomplete = specs.some(sp => !sp.status || sp.status === 'running') || specs.length === 0;
+
+      let status: 'failed' | 'pending' | 'skipped' | 'incomplete' | null = null;
+      if (hasFailed) status = 'failed';
+      else if (hasPending) status = 'pending';
+      else if (hasSkipped && !hasFailed && !hasPending) status = 'skipped';
+      else if (hasIncomplete) status = 'incomplete';
+
+      if (!status) return;
+
+      const { symbol, color } = this.getSuiteSymbol(status);
+      this.print(`  ${this.colored(color, symbol)} ${s.description}\n`);
+    });
   }
 
-  private printSuiteTree(suite: TestSuite, depth: number, isRoot: boolean = false) {
-    const indent = '  '.repeat(depth);
-    
-    if (!isRoot && suite.description) {
-      this.print(`${indent}${this.colored('brightBlue', '○')} ${suite.description}\n`);
+  private addSuitesFromTree(suite: TestSuite, suiteMap: Record<string, any>) {
+    if (suite.id !== 'root') {
+      suiteMap[suite.id] = {
+        id: suite.id,
+        description: suite.description,
+        fullName: suite.fullName,
+        specs: [...suite.specs], // Copy specs
+        children: suite.children.map(child => child.id), // Store child IDs for hierarchy
+        status: this.determineSuiteStatusFromInternal(suite)
+      };
     }
-    
-    suite.specs.forEach(spec => {
-      const specIndent = isRoot ? indent : indent + '  ';
-      const { symbol, color } = this.getSpecTreeSymbol(spec.status);
-      
-      this.print(`${specIndent}${this.colored(color, symbol)} ${this.colored('gray', spec.description)}`);
-      
-      if (spec.duration !== undefined) {
-        this.print(` ${this.colored('dim', `(${spec.duration}ms)`)}`);
-      }
-      
-      this.print('\n');
-      
-      if (spec.status === 'failed' && spec.failedExpectations) {
-        spec.failedExpectations.forEach(expectation => {
-          this.print(`${specIndent}  ${this.colored('brightRed', '↳')} ${this.colored('red', expectation.message)}\n`);
-        });
-      }
-    });
-    
+
+    // Recursively add children
     suite.children.forEach(child => {
-      this.printSuiteTree(child, isRoot ? depth : depth + 1);
+      this.addSuitesFromTree(child, suiteMap);
     });
   }
 
-  private getSpecTreeSymbol(status: string): { symbol: string; color: string } {
+  private collectSuiteIds(suite: TestSuite, result: string[]) {
+    if (suite.id !== 'root') {
+      result.push(suite.id);
+    }
+
+    suite.children.forEach(child => {
+      this.collectSuiteIds(child, result);
+    });
+  }
+
+  private determineSuiteStatusFromInternal(suite: TestSuite): 'passed' | 'failed' | 'pending' | 'skipped' | 'incomplete' | null {
+    const specs = suite.specs;
+    const children = suite.children;
+
+    const hasFailed = specs.some(s => s.status === 'failed');
+    const hasPending = specs.some(s => s.status === 'pending');
+    const hasRunning = specs.some(s => s.status === 'running');
+    const hasUndefined = specs.some(s => !s.status);
+    const allSkipped = specs.length > 0 && specs.every(s => s.status === 'skipped');
+    const allPassed = specs.length > 0 && specs.every(s => s.status === 'passed');
+
+    // Check children recursively
+    const childStatuses = children.map(child => this.determineSuiteStatusFromInternal(child));
+    const hasFailedChildren = childStatuses.some(status => status === 'failed');
+    const hasPendingChildren = childStatuses.some(status => status === 'pending');
+    const hasIncompleteChildren = childStatuses.some(status => status === 'incomplete');
+
+    if (hasFailed || hasFailedChildren) return 'failed';
+    if (hasPending || hasPendingChildren) return 'pending';
+    if (hasRunning || hasUndefined || hasIncompleteChildren) return 'incomplete';
+    if (allSkipped) return 'skipped';
+    if (allPassed) return 'passed';
+
+    return specs.length === 0 ? 'incomplete' : null;
+  }
+
+  private getSuiteSymbol(status: 'failed' | 'pending' | 'skipped' | 'incomplete' | 'passed'): { symbol: string; color: string } {
     switch (status) {
-      case 'passed':
-        return { symbol: '✓', color: 'brightGreen' };
-      case 'failed':
-        return { symbol: '✕', color: 'brightRed' };
-      case 'pending':
-        return { symbol: '○', color: 'brightYellow' };
-      case 'running':
-        return { symbol: '◷', color: 'cyan' };
-      default:
-        return { symbol: '?', color: 'white' };
+      case 'failed': return { symbol: '✕', color: 'brightRed' };
+      case 'pending': return { symbol: '○', color: 'brightYellow' };
+      case 'skipped': return { symbol: '⊘', color: 'gray' };
+      case 'incomplete': return { symbol: '◷', color: 'cyan' };
+      case 'passed': return { symbol: '✓', color: 'brightGreen' };
+      default: return { symbol: '?', color: 'white' };
     }
   }
 
   private printBox(text: string, color: string) {
     const width = text.length + 4;
     const topBottom = '═'.repeat(width);
-    
+
     this.print(this.colored(color, `  ╔${topBottom}╗\n`));
     this.print(this.colored(color, `  ║  ${this.colored('bold', text)}  ║\n`));
     this.print(this.colored(color, `  ╚${topBottom}╝\n`));
@@ -502,23 +741,45 @@ export class ConsoleReporter {
   private printSummary(totalTime: number) {
     const passed = this.executableSpecCount - this.failureCount - this.pendingSpecs.length;
     const total = this.executableSpecCount;
-    
-    this.print(this.colored('bold', '  Test Summary\n'));
-    this.print(this.colored('gray', '  ────────────────────────────────────────────────────────────\n'));
-    
-    if (passed > 0) {
-      this.print(this.colored('brightGreen', `  ✓ Passed:  ${passed}\n`));
-    }
-    if (this.failureCount > 0) {
-      this.print(this.colored('brightRed', `  ✕ Failed:  ${this.failureCount}\n`));
-    }
-    if (this.pendingSpecs.length > 0) {
-      this.print(this.colored('brightYellow', `  ○ Pending: ${this.pendingSpecs.length}\n`));
-    }
-    
-    this.print(this.colored('white', `  ━ Total:   ${total}\n`));
+    const notRun = this.config.totalSpecsDefined - this.executableSpecCount;
+    const duration = `${totalTime.toFixed(3)}s`;
+
+    const lineWidth = 63;
+
+    // Build right-aligned info (total and duration)
+    const rightInfo = `total: ${total}  time: ${duration}`;
+    const title = '  Test Summary';
+    const spacing = Math.max(1, lineWidth - title.length - rightInfo.length - 1);
+
+    // Header
+    const headerLine =
+      this.colored('bold', title) +
+      ' '.repeat(spacing) +
+      this.colored('gray', rightInfo);
+
     this.print('\n');
-    this.print(this.colored('cyan', `  ⏱  Duration: ${totalTime.toFixed(3)}s\n`));
+    this.print(headerLine + '\n');
+    this.print(this.colored('gray', '  ────────────────────────────────────────────────────────────\n'));
+
+    // Inline summary line
+    const parts: string[] = [];
+
+    if (passed > 0)
+      parts.push(this.colored('brightGreen', `✓ Passed: ${passed}`));
+
+    if (this.failureCount > 0)
+      parts.push(this.colored('brightRed', `✕ Failed: ${this.failureCount}`));
+
+    if (this.pendingSpecs.length > 0)
+      parts.push(this.colored('brightYellow', `○ Pending: ${this.pendingSpecs.length}`));
+
+    if (notRun > 0)
+      parts.push(this.colored('gray', `⊘ Not Run: ${notRun}`));
+
+    if (parts.length > 0)
+      this.print('  ' + parts.join(this.colored('gray', '  |  ')) + '\n');
+    else
+      this.print(this.colored('gray', '  (no specs executed)\n'));
   }
 
   private colored(color: string, str: string): string {
@@ -633,38 +894,62 @@ export class ConsoleReporter {
 
   private printTestConfiguration(config: any) {
     if (!config || Object.keys(config).length === 0) return;
-    
-    this.print('\n');
-    this.print(this.colored('bold', '  Test Configuration\n'));
-    this.print(this.colored('gray', '  ────────────────────────────────────────────────────────────\n'));
-    
-    if (config.order.random !== undefined || config.order.seed !== undefined) {
-      this.print(this.colored('magenta', '  Order:\n'));
-      
-      if (config.order.random !== undefined) {
-        this.print(this.colored('magenta', '    Random:  ') + 
-          this.colored('white', config.order.random ? '✓ enabled' : '✗ disabled') + '\n');
-      }
-      
-      if (config.order.seed !== undefined) {
-        this.print(this.colored('magenta', '    Seed:    ') + 
-          this.colored('white', `${config.order.seed}\n`));
-      }
-    }
-    
-    if (config.stopOnSpecFailure !== undefined) {
-      this.print(this.colored('magenta', '  Fail Fast: ') + 
-        this.colored('white', config.stopOnSpecFailure ? '✓ enabled' : '✗ disabled') + '\n');
-    }
-    
-    if (config.stopSpecOnExpectationFailure !== undefined) {
-      this.print(this.colored('magenta', '  Stop Spec: ') + 
-        this.colored('white', config.stopSpecOnExpectationFailure ? '✓ enabled' : '✗ disabled') + '\n');
-    }
-    
-    if (config.failSpecWithNoExpectations !== undefined) {
-      this.print(this.colored('magenta', '  No Expect: ') + 
-        this.colored('white', config.failSpecWithNoExpectations ? '✓ fail' : '✗ pass') + '\n');
+
+    const lineWidth = 63; // adjust or detect terminal width
+
+    const orderPart =
+      config.order?.random !== void 0
+        ? (config.order.random ? "random" : "sequential")
+        : null;
+
+    const seedPart =
+      config.order?.seed !== void 0 ? `seed: ${config.order.seed}` : null;
+
+    const rightInfo = [orderPart, seedPart].filter(Boolean).join("  ");
+
+    // Header line with right alignment
+    const title = "  Test Configuration";
+    const spacing = Math.max(1, lineWidth - title.length - rightInfo.length - 1);
+    const headerLine =
+      this.colored("bold", title) +
+      " ".repeat(spacing) +
+      this.colored("gray", rightInfo);
+
+    this.print("\n");
+    this.print(headerLine + "\n");
+    this.print(
+      this.colored(
+        "gray",
+        "  ────────────────────────────────────────────────────────────\n"
+      )
+    );
+
+    // Then list the other flags in single line
+    const parts = [];
+
+    if (config.stopOnSpecFailure !== void 0)
+      parts.push(
+        this.colored("magenta", "Fail Fast:") +
+          " " +
+          this.colored("white", config.stopOnSpecFailure ? "✓ enabled" : "✗ disabled")
+      );
+
+    if (config.stopSpecOnExpectationFailure !== void 0)
+      parts.push(
+        this.colored("magenta", "Stop Spec:") +
+          " " +
+          this.colored("white", config.stopSpecOnExpectationFailure ? "✓ enabled" : "✗ disabled")
+      );
+
+    if (config.failSpecWithNoExpectations !== void 0)
+      parts.push(
+        this.colored("magenta", "No Expect:") +
+          " " +
+          this.colored("white", config.failSpecWithNoExpectations ? "✓ fail" : "✗ pass")
+      );
+
+    if (parts.length > 0) {
+      this.print("  " + parts.join(this.colored("gray", "  |  ")) + "\n");
     }
   }
 }
