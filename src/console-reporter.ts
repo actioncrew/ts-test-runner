@@ -61,8 +61,9 @@ export class ConsoleReporter {
   private currentSpec: TestSpec | null;
   private suiteById: Map<string, TestSuite> = new Map();
   private specById: Map<string, TestSpec> = new Map();
-  private readonly lineWidth: number = 60;
+  private readonly lineWidth: number = 63;
   private interruptHandlersRegistered: boolean = false;
+  private interrupted = false;
 
   constructor() {
     this.print = (...args) => process.stdout.write(util.format(...args));
@@ -116,9 +117,9 @@ export class ConsoleReporter {
 
   private createRootSuite(): TestSuite {
     return {
-      id: 'root',
-      description: 'Route Suite',
-      fullName: 'root',
+      id: 'suite0',
+      description: 'Jasmine__TopLevel__Suite',
+      fullName: 'suite0',
       specs: [],
       children: [],
       status: 'skipped'
@@ -134,7 +135,7 @@ export class ConsoleReporter {
     this.currentSuite = null;
     this.currentSpec = null;
 
-    this.suiteById.set('root', this.rootSuite);
+    this.suiteById.set(this.rootSuite.id, this.rootSuite);
 
     // 1️⃣ Register suites
     if (config.orderedSuites) {
@@ -168,7 +169,7 @@ export class ConsoleReporter {
           specConfig.suiteId ?? this.findSuiteIdForSpec(specConfig);
         const parentSuite = this.suiteById.get(parentSuiteId);
 
-        if (parentSuite && parentSuite.id !== 'root') {
+        if (parentSuite && parentSuite.id !== this.rootSuite.id) {
           parentSuite.specs.push(spec);
         } else {
           // orphaned spec → does not belong to any known suite
@@ -282,6 +283,7 @@ export class ConsoleReporter {
     this.suiteStack = [this.rootSuite];
     this.currentSuite = null;
     this.currentSpec = null;
+    this.interrupted = false;
     
     this.buildSuiteTree(config);
     this.setupInterruptHandler();
@@ -293,6 +295,8 @@ export class ConsoleReporter {
   }
 
   suiteStarted(config: any) {
+    if (this.interrupted) return;
+
     // Try to get or create the suite node
     let suite = this.suiteById.get(config.id);
     const parentSuite = this.suiteStack[this.suiteStack.length - 1];
@@ -331,6 +335,8 @@ export class ConsoleReporter {
   }
 
   specStarted(config: any) {
+    if (this.interrupted) return;
+    
     const spec = this.specById.get(config.id) ?? {
       id: config.id,
       description: config.description,
@@ -356,6 +362,8 @@ export class ConsoleReporter {
   }
 
   specDone(result: any) {
+    if (this.interrupted) return;
+    
     this.specCount++;
 
     const spec = this.specById.get(result.id);
@@ -394,6 +402,8 @@ export class ConsoleReporter {
   }
 
   suiteDone(result: any) {
+    if (this.interrupted) return;
+    
     const suite = this.suiteStack[this.suiteStack.length - 1];
     if (!suite) return;
 
@@ -464,66 +474,37 @@ export class ConsoleReporter {
     this.print('\n');
   }
 
+  /** Determine suite status based on its specs and children */
   private determineSuiteStatusFromInternal(suite: TestSuite): 'passed' | 'failed' | 'pending' | 'skipped' | 'incomplete' {
-    if (!suite) return 'skipped';
+    // Leaf suite: check specs
+    if (suite.specs.length > 0) {
+      const hasFailed = suite.specs.some(s => s.status === 'failed');
+      if (hasFailed) return 'failed';
 
-    let hasFailed = false;
-    let hasPending = false;
-    let hasSkipped = false;
-    let hasRunning = false;
-    let hasPassed = false;
+      const hasPending = suite.specs.some(s => s.status === 'pending');
+      if (hasPending) return 'pending';
 
-    // --- Check specs ---
-    for (const spec of suite.specs) {
-      switch (spec.status) {
-        case 'failed':
-          hasFailed = true;
-          break;
-        case 'pending':
-          hasPending = true;
-          break;
-        case 'skipped':
-          hasSkipped = true;
-          break;
-        case 'running':
-          hasRunning = true;
-          break;
-        case 'passed':
-          hasPassed = true;
-          break;
-      }
+      const hasRunning = suite.specs.some(s => s.status === 'running');
+      if (hasRunning) return 'incomplete';
+
+      const hasSkipped = suite.specs.every(s => s.status === 'skipped');
+      if (hasSkipped) return 'skipped';
+
+      return 'passed';
     }
 
-    // --- Check children ---
-    for (const child of suite.children) {
-      const childStatus = this.determineSuiteStatusFromInternal(child);
-      switch (childStatus) {
-        case 'failed':
-          hasFailed = true;
-          break;
-        case 'pending':
-          hasPending = true;
-          break;
-        case 'skipped':
-          hasSkipped = true;
-          break;
-        case 'incomplete':
-          hasRunning = true;
-          break;
-        case 'passed':
-          hasPassed = true;
-          break;
-      }
+    // Non-leaf suite: check children recursively
+    if (suite.children.length > 0) {
+      let childStatuses = suite.children.map(child => this.determineSuiteStatusFromInternal(child));
+      if (childStatuses.includes('failed')) return 'failed';
+      if (childStatuses.includes('pending')) return 'pending';
+      if (childStatuses.includes('incomplete')) return 'incomplete';
+      if (childStatuses.every(s => s === 'skipped')) return 'skipped';
+      return 'passed';
     }
 
-    // --- Compute final status ---
-    if (hasFailed) return 'failed';
-    if (hasPending) return 'pending';
-    if (hasRunning) return 'incomplete';
-    if (hasSkipped && !hasPassed) return 'skipped';
-    if (hasPassed) return 'passed';
-
-    return 'skipped'; // default fallback
+    // Empty suite
+    return 'skipped';
   }
 
   private setupInterruptHandler() {
@@ -793,72 +774,64 @@ export class ConsoleReporter {
     return status;
   }
 
-  private printProblemSuite(suite: TestSuite, indentLevel: number): boolean {
-    if (suite.id === 'root') return false;
+  /** Print only suites/specs that need attention */
+  private printProblemSuite(suite: TestSuite, indentLevel: number = 0): boolean {
+    // Never print root suite
+    if (suite.id === this.rootSuite.id) return false;
 
     const indent = '  '.repeat(indentLevel);
     let hasProblems = false;
 
-    // Determine if this suite itself is problematic
-    const isProblemSuite = suite.status &&
-      (suite.status === 'failed' ||
-      suite.status === 'pending' ||
-      suite.status === 'incomplete' ||
-      suite.status === 'skipped');
+    // Determine suite status
+    suite.status = this.determineSuiteStatusFromInternal(suite);
 
+    // Check children first
     let childHasProblems = false;
-
-    // Recursively inspect child suites
-    for (const child of suite.children) {
+    suite.children.forEach(child => {
       if (this.printProblemSuite(child, indentLevel + 1)) {
         childHasProblems = true;
         hasProblems = true;
       }
-    }
+    });
 
-    // If this suite or any child has problems, we show it
+    // Determine if this suite itself is a problem node
+    const isProblemSuite = ['failed', 'pending', 'incomplete', 'skipped'].includes(suite.status);
+
     if (isProblemSuite || childHasProblems) {
       hasProblems = true;
 
-      const specCount = suite.specs.length;
-      const executedSpecs = suite.specs.filter(s => s.status && s.status !== 'skipped');
-      const failedCount = suite.specs.filter(s => s.status === 'failed').length;
-      const pendingCount = suite.specs.filter(s => s.status === 'pending').length;
-      const runningCount = suite.specs.filter(s => s.status === 'running').length;
-      const undefinedCount = suite.specs.filter(s => !s.status).length;
-
-      const statusDetails: string[] = [];
-
-      if (failedCount > 0) statusDetails.push(`${failedCount} failed`);
-      if (pendingCount > 0) statusDetails.push(`${pendingCount} pending`);
-      if (runningCount > 0) statusDetails.push(`${runningCount} running`);
-      if (undefinedCount > 0) statusDetails.push(`${undefinedCount} not run`);
-
-      if (executedSpecs.length > 0) {
-        statusDetails.push(`${executedSpecs.length}/${specCount} executed`);
-      } else if (specCount > 0) {
-        statusDetails.push(`${specCount} specs`);
-      }
-
-      const childCount = suite.children.length;
-      if (childCount > 0) {
-        statusDetails.push(`${childCount} child suite${childCount !== 1 ? 's' : ''}`);
-      }
-
-      const details = statusDetails.length > 0
-        ? this.colored('gray', ` (${statusDetails.join(', ')})`)
-        : '';
-
-      // Pick symbol and color based on status
-      const { symbol, color } = this.getSuiteSymbol(suite.status!);
-
-      // Always print problem suites (including skipped)
       if (isProblemSuite) {
+        const { symbol, color } = this.getSuiteSymbol(suite.status!);
+        const specCount = suite.specs.length;
+        const executedSpecs = suite.specs.filter(s => s.status && s.status !== 'skipped');
+
+        const statusDetails: string[] = [];
+        const failedCount = suite.specs.filter(s => s.status === 'failed').length;
+        if (failedCount) statusDetails.push(`${failedCount} failed`);
+
+        const pendingCount = suite.specs.filter(s => s.status === 'pending').length;
+        if (pendingCount) statusDetails.push(`${pendingCount} pending`);
+
+        const runningCount = suite.specs.filter(s => s.status === 'running').length;
+        if (runningCount) statusDetails.push(`${runningCount} running`);
+
+        if (executedSpecs.length > 0) statusDetails.push(`${executedSpecs.length}/${specCount} executed`);
+        else if (specCount > 0) statusDetails.push(`${specCount} specs`);
+
+        if (suite.children.length > 0) {
+          statusDetails.push(`${suite.children.length} child suite${suite.children.length !== 1 ? 's' : ''}`);
+        }
+
+        const details = statusDetails.length > 0 ? this.colored('gray', ` (${statusDetails.join(', ')})`) : '';
         this.print(`${indent}${this.colored(color, symbol)} ${suite.description}${details}\n`);
-      }
-      // Group non-problem parents with problematic children
-      else if (childHasProblems) {
-        this.print(`${indent}${this.colored('brightBlue', '↳')} ${this.colored('dim', suite.description)}\n`);
+      } else if (childHasProblems && !isProblemSuite) {
+        // Only show grouping for parent of problem children
+        const hasNonSkippedChildProblems = suite.children.some(
+          child => ['failed', 'pending', 'incomplete'].includes(child.status!)
+        );
+        if (hasNonSkippedChildProblems) {
+          this.print(`${indent}${this.colored('brightBlue', '↳')} ${this.colored('dim', suite.description)}\n`);
+        }
       }
     }
 
@@ -905,7 +878,7 @@ export class ConsoleReporter {
     const notRun = this.config.totalSpecsDefined - this.executableSpecCount;
     const duration = `${totalTime.toFixed(3)}s`;
 
-    const lineWidth = 63;
+    const lineWidth = this.lineWidth;
 
     // Build right-aligned info (total and duration)
     const rightInfo = `total: ${total}  time: ${duration}`;
@@ -1056,7 +1029,7 @@ export class ConsoleReporter {
   private printTestConfiguration(config: any) {
     if (!config || Object.keys(config).length === 0) return;
 
-    const lineWidth = 63; // adjust or detect terminal width
+    const lineWidth = this.lineWidth; // adjust or detect terminal width
 
     const orderPart =
       config.order?.random !== void 0
