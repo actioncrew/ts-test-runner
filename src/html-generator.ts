@@ -411,12 +411,12 @@ function WebSocketEventForwarder() {
       orderedSpecs: orderedSpecs.map((spec) => ({
         id: spec.id,
         description: spec.description,
-        fullName: spec.fullName
+        fullName: spec.getFullName()
       })),
       orderedSuites: orderedSuites.map((suite) => ({
         id: suite.id,
         description: suite.description,
-        fullName: suite.fullName
+        fullName: suite.getFullName()
       })),
       timestamp: Date.now()
     });
