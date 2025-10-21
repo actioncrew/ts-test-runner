@@ -67,7 +67,7 @@ export class ConsoleReporter {
   private interrupted = false;
 
   constructor() {
-    this.print = (...args) => process.stdout.write(util.format(...args));
+    this.print = (...args) => logger.printRaw(util.format(...args));
     this.showColors = this.detectColorSupport();
     this.config = null;
     this.specCount = 0;
