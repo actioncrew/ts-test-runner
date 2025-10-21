@@ -105,7 +105,7 @@ export class ConsoleReporter {
       white: '\x1B[97m',
       bold: '\x1B[1m',
       dim: '\x1B[2m',
-      none: '\x1B[0m'
+      none: '\x1B[0m',
     };
   }
 
@@ -846,7 +846,7 @@ export class ConsoleReporter {
 
    this.print(
     `${this.colored(color, `  ╔${topBottom}╗`)}\n` +
-    `${this.colored(color, `  ║  `)}${this.colored(['bold', color], text)}${this.colored(color, `  ║`)}\n` +
+    `${this.colored(color, `  ║  `)}${this.colored(['bold', color], text + `  ║`)}\n` +
     `${this.colored(color, `  ╚${topBottom}╝`)}\n`);
   }
 
@@ -905,7 +905,7 @@ export class ConsoleReporter {
   private colored(style: string | string[], text: string): string {
     const styles = Array.isArray(style) ? style : [style];
     const seq = styles.map(s => this.ansi[s] ?? '').join('');
-    return `${seq}${text}${this.ansi.reset}`;
+    return `${seq}${text}${this.ansi.none}`;
   }
 
   private gatherEnvironmentInfo(): EnvironmentInfo {
