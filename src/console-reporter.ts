@@ -844,9 +844,10 @@ export class ConsoleReporter {
     const width = text.length + 4;
     const topBottom = '═'.repeat(width);
 
-    this.print(this.colored(color, `  ╔${topBottom}╗\n`));
-    this.print(this.colored(color, `  ║  ${this.colored('bold', text)}  ║\n`));
-    this.print(this.colored(color, `  ╚${topBottom}╝\n`));
+   this.print(
+    `${this.colored(color, `  ╔${topBottom}╗`)}\n` +
+    `${this.colored(color, `  ║  `)}${this.colored(['bold', color], text)}${this.colored(color, `  ║`)}\n` +
+    `${this.colored(color, `  ╚${topBottom}╝`)}\n`);
   }
 
   private printSectionHeader(text: string, color: string) {
@@ -901,8 +902,10 @@ export class ConsoleReporter {
       this.print(this.colored('gray', '  (no specs executed)\n'));
   }
 
-  private colored(color: string, str: string): string {
-    return this.showColors ? this.ansi[color] + str + this.ansi.none : str;
+  private colored(style: string | string[], text: string): string {
+    const styles = Array.isArray(style) ? style : [style];
+    const seq = styles.map(s => this.ansi[s] ?? '').join('');
+    return `${seq}${text}${this.ansi.reset}`;
   }
 
   private gatherEnvironmentInfo(): EnvironmentInfo {
