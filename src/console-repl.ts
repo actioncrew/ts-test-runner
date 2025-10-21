@@ -1,18 +1,44 @@
-import readline from "readline";
 
 // ─── Constants ──────────────────────────────────────────────
 const MAX_WIDTH = 63;
 
-// Utility to wrap a string into lines of max width
+// Matches all ESC-based ANSI / OSC control sequences
+const ANSI_FULL_REGEX =
+  /\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1B\\))/g;
+
+// Returns *visible* column width (ignoring control sequences)
+function visibleWidth(text: string): number {
+  const clean = text.replace(ANSI_FULL_REGEX, "");
+  return [...clean].length; // correct for surrogate pairs (emojis, etc.)
+}
+
+// Wraps a string to the given visual width, preserving ANSI codes
 function wrapLine(text: string, width: number): string[] {
   const lines: string[] = [];
-  let remaining = text;
+  let buffer = "";
+  let visible = 0;
 
-  while (remaining.length > width) {
-    lines.push(remaining.slice(0, width));
-    remaining = remaining.slice(width);
+  // Split text while preserving ANSI sequences as tokens
+  const tokens = text.split(/(\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1B\\)))/);
+
+  for (const token of tokens) {
+    if (ANSI_FULL_REGEX.test(token)) {
+      buffer += token; // keep full escape sequence intact
+      continue;
+    }
+
+    for (const ch of [...token]) { // Unicode-safe iteration
+      if (visible + 1 > width) {
+        lines.push(buffer);
+        buffer = "";
+        visible = 0;
+      }
+      buffer += ch;
+      visible += 1;
+    }
   }
-  if (remaining.length > 0) lines.push(remaining);
+
+  if (buffer.length > 0) lines.push(buffer);
   return lines;
 }
 
