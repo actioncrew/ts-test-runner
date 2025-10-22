@@ -12,8 +12,7 @@ function visibleWidth(text: string): number {
 }
 
 // Wraps a string to the given visual width, preserving ANSI codes
-function wrapLine(text: string, width: number, indentLevel = 0): string[] {
-  const indent = "  ".repeat(indentLevel);
+function wrapLine(text: string, width: number): string[] {
   const lines: string[] = [];
   let buffer = "";
   let visible = 0;
@@ -41,7 +40,7 @@ function wrapLine(text: string, width: number, indentLevel = 0): string[] {
   }
 
   if (buffer.length > 0) lines.push(buffer);
-  return lines.map((line) => indent + line);
+  return lines;
 }
 
 // ─── ANSI colors ────────────────────────────────────────────

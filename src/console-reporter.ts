@@ -980,7 +980,7 @@ export class ConsoleReporter {
     this.print(this.colored('bold', '  Browser/Navigator\n'));
     this.print(this.colored('gray', '  ────────────────────────────────────────────────────────────\n'));
 
-    const shortUA = this.truncateString(userAgent.userAgent, 50);
+    const shortUA = this.truncateString(userAgent.userAgent, 45);
     this.print(this.colored('cyan', '  User Agent: ') + this.colored('white', `${shortUA}\n`));
 
     this.print(this.colored('cyan', '  Browser:    ') + this.colored('white', `${browserName} ${browserVersion}\n`));
