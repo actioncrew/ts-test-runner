@@ -1,4 +1,3 @@
-
 // ─── Constants ──────────────────────────────────────────────
 const MAX_WIDTH = 63;
 
@@ -9,25 +8,28 @@ const ANSI_FULL_REGEX =
 // Returns *visible* column width (ignoring control sequences)
 function visibleWidth(text: string): number {
   const clean = text.replace(ANSI_FULL_REGEX, "");
-  return [...clean].length; // correct for surrogate pairs (emojis, etc.)
+  return [...clean].length; // Unicode-safe
 }
 
 // Wraps a string to the given visual width, preserving ANSI codes
-function wrapLine(text: string, width: number): string[] {
+function wrapLine(text: string, width: number, indentLevel = 0): string[] {
+  const indent = "  ".repeat(indentLevel);
   const lines: string[] = [];
   let buffer = "";
   let visible = 0;
 
-  // Split text while preserving ANSI sequences as tokens
-  const tokens = text.split(/(\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1B\\)))/);
+  // Split text while preserving ANSI sequences
+  const tokens = text.split(
+    /(\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1B\\)))/
+  );
 
   for (const token of tokens) {
     if (ANSI_FULL_REGEX.test(token)) {
-      buffer += token; // keep full escape sequence intact
+      buffer += token; // keep escape intact
       continue;
     }
 
-    for (const ch of [...token]) { // Unicode-safe iteration
+    for (const ch of [...token]) {
       if (visible + 1 > width) {
         lines.push(buffer);
         buffer = "";
@@ -39,10 +41,10 @@ function wrapLine(text: string, width: number): string[] {
   }
 
   if (buffer.length > 0) lines.push(buffer);
-  return lines;
+  return lines.map((line) => indent + line);
 }
 
-// ANSI colors
+// ─── ANSI colors ────────────────────────────────────────────
 const colors = {
   reset: "\x1b[0m",
   bold: "\x1b[1m",
@@ -93,7 +95,6 @@ export class Logger {
       hasPrompt: opts.hasPrompt ?? this.showPrompt,
     });
 
-    // keep memory bounded
     if (this.previousLines.length > 200) {
       this.previousLines = this.previousLines.slice(-100);
     }
@@ -122,10 +123,10 @@ export class Logger {
     return true;
   }
 
-  // ─── Raw printing (no prompt / no wrapping) ────────────────
+  // ─── Raw printing (with wrapping, but no prompt) ──────────
 
   printRaw(msg: string) {
-    const lines = msg.split(/\r?\n/);
+    const lines = wrapLine(msg, MAX_WIDTH);
     for (const [i, line] of lines.entries()) {
       process.stdout.write(line);
       if (i < lines.length - 1) process.stdout.write("\n");
@@ -141,8 +142,7 @@ export class Logger {
     return true;
   }
 
-  // ─── Error output ─────────────────────────────────────────
-
+  // ─── Error output (wrapped + colored) ─────────────────────
   error(msg: string) {
     const lines = wrapLine(msg, MAX_WIDTH);
     for (const [i, line] of lines.entries()) {
@@ -173,7 +173,6 @@ export class Logger {
 
 export const logger = new Logger({
   onError: (msg) => {
-    // Example: write to a log file or remote reporter
     console.error("[Logger] Error captured:", msg);
   },
 });

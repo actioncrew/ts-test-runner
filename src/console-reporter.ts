@@ -844,10 +844,9 @@ export class ConsoleReporter {
     const width = text.length + 4;
     const topBottom = '═'.repeat(width);
 
-   this.print(
-    `${this.colored(color, `  ╔${topBottom}╗`)}\n` +
-    `${this.colored(color, `  ║  `)}${this.colored(['bold', color], text + `  ║`)}\n` +
-    `${this.colored(color, `  ╚${topBottom}╝`)}\n`);
+    logger.printlnRaw(`${this.colored(color, `  ╔${topBottom}╗`)}`);
+    logger.printlnRaw(`${this.colored(color, `  ║  `)}${this.colored(['bold', color], text + `  ║`)}`);
+    logger.printlnRaw(`${this.colored(color, `  ╚${topBottom}╝`)}`);
   }
 
   private printSectionHeader(text: string, color: string) {
