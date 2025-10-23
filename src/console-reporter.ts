@@ -254,15 +254,17 @@ export class ConsoleReporter {
 
   userAgent(message: any) {
     this.envInfo = this.gatherEnvironmentInfo();
-    const userAgent = { ...message };
-    delete userAgent?.timestamp;
-    delete userAgent?.type;
-    this.envInfo = {
-      ...this.envInfo,
-      userAgent
-    };
-
-    this.resolveJasmineReady?.();
+    if(message) {
+      const userAgent = { ...message };
+      delete userAgent?.timestamp;
+      delete userAgent?.type;
+      this.envInfo = {
+        ...this.envInfo,
+        userAgent
+      };
+    }
+    
+    this.resolveJasmineReady?.();    
   }
 
   async jasmineStarted(config: any) {
@@ -638,7 +640,7 @@ export class ConsoleReporter {
           if (expectation.stack) {
             const stackLines = expectation.stack.split('\n').slice(1, 6).map((l: string) => l.trim());
             stackLines.forEach((line: string) => {
-              this.print(this.colored('gray', `      at ${line}\n`));
+              this.print(this.colored('gray', `  ${line}\n`));
             });
           }
 
@@ -943,7 +945,7 @@ export class ConsoleReporter {
     }
 
     this.print('\n');
-    const cwdShort = this.truncateString(this.envInfo.cwd, 50, true);
+    const cwdShort = this.truncateString(this.envInfo.cwd, 45, true);
     this.print(this.colored('cyan', '  Directory:  ') + this.colored('gray', `${cwdShort}\n`));
   }
 

@@ -53,7 +53,7 @@ process.on('uncaughtException', error => {
 
 // Import and execute specs
 (async function() {
-  const { MultiReporter, ConsoleReporter, CoverageReporter } = await import(pathToFileURL(path.join(__dirname, '../lib/index.js')).href);
+  const { CompoundReporter, ConsoleReporter, CoverageReporter } = await import(pathToFileURL(path.join(__dirname, '../lib/index.js')).href);
   const jasmineCore = await import(pathToFileURL(path.join(__dirname, '../node_modules/jasmine-core/lib/jasmine-core/jasmine.js')).href);
 
   // Initialize Jasmine
@@ -70,7 +70,7 @@ process.on('uncaughtException', error => {
   });
 
   env.clearReporters();
-  const reporter = new MultiReporter([new ConsoleReporter(), new CoverageReporter({ coverage: ${this.config.coverage} })]);
+  const reporter = new CompoundReporter([new ConsoleReporter(), new CoverageReporter({ coverage: ${this.config.coverage} })]);
   env.addReporter(reporter);
 
   try {
