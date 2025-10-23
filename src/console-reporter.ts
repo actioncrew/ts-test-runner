@@ -1,5 +1,6 @@
 import util from 'util';
-import { logger } from './console-repl';
+import { logger, wrapLine } from './console-repl';
+import { MAX_LENGTH } from 'picomatch/lib/constants';
 
 interface EnvironmentInfo {
   node: string;
@@ -620,28 +621,19 @@ export class ConsoleReporter {
 
     this.failedSpecs.forEach((spec, idx) => {
       // Print numbered spec header
-      const header = `  ${idx + 1}) ${spec.fullName}`;
-      this.print(this.colored('bold', header + '\n'));
+      const header = wrapLine(`${idx + 1}) ${spec.fullName}`, this.lineWidth, 1);
+      header.forEach(line => this.print(this.colored("white", line)));
 
       if (spec.failedExpectations?.length > 0) {
         spec.failedExpectations.forEach((expectation: any, exIndex: number) => {
-          const marker = this.colored('brightRed', '✕');
-          const messageLines = (expectation.message || '').split('\n').map((l: string) => l.trim());
-
-          // Print the failure message, all aligned to same margin
-          this.print(`  ${marker} ${this.colored('brightRed', messageLines[0])}\n`);
-
+          const messageLines = wrapLine(`✕ ${logger.reformat(expectation.message, { width: this.lineWidth, align: 'left' }).map((l: string) => l.trim()).join(' ')}`, this.lineWidth, 1);
           // Continuation lines of same message
-          for (let li = 1; li < messageLines.length; li++) {
-            this.print(`    ${this.colored('brightRed', messageLines[li])}\n`);
-          }
+          messageLines.forEach(line => this.print(this.colored('brightRed', line)));
 
           // Stack trace — lightly indented and gray
           if (expectation.stack) {
-            const stackLines = expectation.stack.split('\n').slice(1, 6).map((l: string) => l.trim());
-            stackLines.forEach((line: string) => {
-              this.print(this.colored('gray', `  ${line}\n`));
-            });
+            const stackLines = wrapLine(logger.reformat(expectation.stack, { width: MAX_LENGTH, align: 'left' }).map((l: string) => l.trim()).join(' '), this.lineWidth, 2);
+            stackLines.forEach(line => this.print(this.colored('gray', line)));
           }
 
           // Space between multiple expectations for same spec

@@ -6,31 +6,39 @@ const ANSI_FULL_REGEX =
   /\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1B\\))/g;
 
 // Returns *visible* column width (ignoring control sequences)
-function visibleWidth(text: string): number {
+export function visibleWidth(text: string): number {
   const clean = text.replace(ANSI_FULL_REGEX, "");
   return [...clean].length; // Unicode-safe
 }
 
-// Wraps a string to the given visual width, preserving ANSI codes
-function wrapLine(text: string, width: number): string[] {
+// Wraps text into lines that fit the given width, preserving ANSI and indentation
+export function wrapLine(text: string, width: number, indentation: number = 0): string[] {
+  const indent = "  ".repeat(indentation); // 2 spaces per level
+  const indentWidth = indent.length;
+
+  // Sanity check: avoid zero-width rendering
+  if (width <= indentWidth) width = indentWidth + 1;
+
   const lines: string[] = [];
   let buffer = "";
   let visible = 0;
 
-  // Split text while preserving ANSI sequences
+  // Split text into ANSI-safe tokens (keeps escape sequences intact)
   const tokens = text.split(
-    /(\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1B\\)))/
+    /(\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1B\\)))/g
   );
 
   for (const token of tokens) {
+    // Preserve ANSI escape sequences without affecting visible width
     if (ANSI_FULL_REGEX.test(token)) {
-      buffer += token; // keep escape intact
+      buffer += token;
       continue;
     }
 
     for (const ch of [...token]) {
-      if (visible + 1 > width) {
-        lines.push(buffer);
+      if (visible + 1 >= width - indentWidth) {
+        // Push full line with indentation applied
+        lines.push(indent + buffer);
         buffer = "";
         visible = 0;
       }
@@ -39,7 +47,7 @@ function wrapLine(text: string, width: number): string[] {
     }
   }
 
-  if (buffer.length > 0) lines.push(buffer);
+  if (buffer.length > 0) lines.push(indent + buffer);
   return lines;
 }
 
@@ -67,6 +75,15 @@ interface LoggerOptions {
   errorPromptColor?: string;
 }
 
+type Align = "left" | "center" | "right";
+
+interface ReformatOptions {
+  width: number;
+  align?: Align;
+  padChar?: string;
+  trim?: boolean;
+}
+
 // ─── Logger Class ──────────────────────────────────────────
 export class Logger {
   private previousLines: LoggedLine[] = [];
@@ -81,6 +98,50 @@ export class Logger {
     this.prompt = `${promptColor}> ${colors.reset}`;
     this.errorPrompt = `${errorPromptColor}> ${colors.reset}`;
     this.onError = options.onError;
+  }
+
+  visibleWidth(str: string): number {
+    return [...str.replace(ANSI_FULL_REGEX, "")].length;
+  }
+
+  reformat(text: string, opts: ReformatOptions): string[] {
+    const { width, align = "left", padChar = " ", trim = false } = opts;
+
+    // Normalize: merge newlines and collapse excessive spaces
+    const normalized = text
+      .replace(/\r?\n/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+
+    const stripped = normalized.replace(ANSI_FULL_REGEX, "");
+    const chars = [...stripped]; // Unicode-safe
+    const lines = [];
+
+    // Split into multiple lines of at most `width` visible chars
+    for (let i = 0; i < chars.length; i += width) {
+      const slice = chars.slice(i, i + width).join("");
+      const visible = visibleWidth(slice);
+      const pad = Math.max(0, width - visible);
+      let formatted;
+
+      switch (align) {
+        case "right":
+          formatted = padChar.repeat(pad) + slice;
+          break;
+        case "center": {
+          const left = Math.floor(pad / 2);
+          const right = pad - left;
+          formatted = padChar.repeat(left) + slice + padChar.repeat(right);
+          break;
+        }
+        default:
+          formatted = slice + padChar.repeat(pad);
+      }
+
+      lines.push(formatted);
+    }
+
+    return lines;
   }
 
   private clearLine() {
@@ -123,19 +184,16 @@ export class Logger {
   }
 
   // ─── Raw printing (with wrapping, but no prompt) ──────────
-
-  printRaw(msg: string) {
-    const lines = wrapLine(msg, MAX_WIDTH);
-    for (const [i, line] of lines.entries()) {
-      process.stdout.write(line);
-      if (i < lines.length - 1) process.stdout.write("\n");
-      this.addLine(line, { isRaw: true });
-    }
+  
+  printRaw(line: string) {
+    // Simply print the line as-is
+    process.stdout.write(line);
+    this.addLine(line, { isRaw: true });
     return true;
   }
 
-  printlnRaw(msg = "") {
-    if (msg) this.printRaw(msg);
+  printlnRaw(line = "") {
+    this.printRaw(line);
     process.stdout.write("\n");
     this.addLine("", { isRaw: true });
     return true;
