@@ -72,6 +72,7 @@ process.on('uncaughtException', error => {
   env.clearReporters();
   const reporter = new CompoundReporter([new ConsoleReporter(), new CoverageReporter({ coverage: ${this.config.coverage} })]);
   env.addReporter(reporter);
+  reporter.userAgent(undefined);
 
   try {
 ${imports}

@@ -657,10 +657,11 @@ export class ConsoleReporter {
   private printPendingSpecs() {
     this.print('\n');
     this.printSectionHeader('PENDING', 'yellow');
-    this.print('\n');
+    this.print(this.colored('yellow', '  ────────────────────────────────────────────────────────────\n'));
+
     
     this.pendingSpecs.forEach((spec) => {
-      this.print(`\n  ${this.colored('brightYellow', '○')} ${this.colored('dim', spec.fullName)}\n`);
+      this.print(`  ${this.colored('brightYellow', '○')} ${this.colored('dim', spec.fullName)}\n`);
       if (spec.pendingReason) {
         this.print(`    ${this.colored('yellow', spec.pendingReason)}\n`);
       }
