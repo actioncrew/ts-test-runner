@@ -7,7 +7,7 @@ export { Logger } from './console-repl';
 export { ConfigManager } from './config-manager';
 export { ConsoleReporter } from './console-reporter';
 export { CoverageReporter } from './coverage-reporter';
-export { CompoundReporter as MultiReporter } from './compound-reporter';
+export { CompoundReporter } from './compound-reporter';
 export { FileDiscoveryService } from './file-discovery-service';
 export { HtmlGenerator } from './html-generator';
 export { HttpServerManager } from './http-server-manager';
