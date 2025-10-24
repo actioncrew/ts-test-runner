@@ -633,18 +633,18 @@ export class ConsoleReporter {
     this.failedSpecs.forEach((spec, idx) => {
       // Print numbered spec header
       const header = wrapLine(`${idx + 1}) ${spec.fullName}`, this.lineWidth, 1);
-      header.forEach(line => this.print(this.colored("white", line)));
+      header.forEach(line => (this.print(this.colored("white", line)), this.print('\n')));
 
       if (spec.failedExpectations?.length > 0) {
         spec.failedExpectations.forEach((expectation: any, exIndex: number) => {
           const messageLines = wrapLine(`✕ ${logger.reformat(expectation.message, { width: this.lineWidth, align: 'left' }).map((l: string) => l.trim()).join(' ')}`, this.lineWidth, 1);
           // Continuation lines of same message
-          messageLines.forEach(line => this.print(this.colored('brightRed', line)));
+          messageLines.forEach(line => (this.print(this.colored('brightRed', line)), this.print('\n')));
 
           // Stack trace — lightly indented and gray
           if (expectation.stack) {
             const stackLines = wrapLine(logger.reformat(expectation.stack, { width: MAX_LENGTH, align: 'left' }).map((l: string) => l.trim()).join(' '), this.lineWidth, 2);
-            stackLines.forEach(line => this.print(this.colored('gray', line)));
+            stackLines.forEach(line => (this.print(this.colored('gray', line)), this.print('\n')));
           }
 
           // Space between multiple expectations for same spec
