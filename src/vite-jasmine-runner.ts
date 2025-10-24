@@ -275,13 +275,24 @@ export class ViteJasmineRunner extends EventEmitter {
     });
 
     const onBrowserClose = async () => {
-      if (!testsCompleted) {
-        setImmediate(() => {
-          logger.clearLine(); logger.printRaw('\n');
-          logger.clearLine(); logger.printRaw('\n');
-          logger.printlnRaw("🔄 Browser window closed prematurely")
-        });
-      }
+      const promise = new Promise<void>((resolve) => {
+        if (!testsCompleted) {
+          setImmediate(() => {
+            logger.clearLine();
+            logger.printRaw('\n');
+            logger.clearLine();
+            this.multiReporter.testsAborted();
+            logger.clearLine();
+            logger.printRaw('\n');
+            logger.printlnRaw('🔄 Browser window closed prematurely');
+            resolve();
+          });
+        } else {
+          resolve();
+        }
+      });
+
+      await promise;
       await this.cleanup();
     };
 
@@ -291,6 +302,7 @@ export class ViteJasmineRunner extends EventEmitter {
       if (!testsCompleted) {
         setImmediate(() => {
           logger.clearLine(); logger.printRaw('\n');
+          logger.clearLine(); this.multiReporter.testsAborted();
           logger.clearLine(); logger.printRaw('\n');
           logger.printlnRaw("🛑 Tests aborted by user (Ctrl+C)");
         });

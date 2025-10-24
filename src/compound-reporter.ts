@@ -45,4 +45,8 @@ export class CompoundReporter {
   jasmineDone(result: any) {
     this.reporters.forEach(r => r.jasmineDone?.(result));
   }
+
+  testsAborted(message?: string) {
+    this.reporters.forEach(r => (r as any)?.testsAborted?.(message));
+  }
 }
