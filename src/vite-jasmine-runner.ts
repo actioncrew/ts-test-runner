@@ -284,7 +284,7 @@ export class ViteJasmineRunner extends EventEmitter {
             this.multiReporter.testsAborted();
             logger.clearLine();
             logger.printRaw('\n');
-            logger.printlnRaw('🔄 Browser window closed prematurely');
+            logger.println('🔄 Browser window closed prematurely');
             resolve();
           });
         } else {

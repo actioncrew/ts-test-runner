@@ -32,8 +32,4 @@ export class CoverageReporter implements Reporter {
       new CoverageReportGenerator().generate(coverage);
     }
   }
-
-  testsAborted(message?: string) {
-    logger.println(`⚠️  Tests aborted. Coverage may be incomplete. ${message ?? ''}`);
-  }
 }
