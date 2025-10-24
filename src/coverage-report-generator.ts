@@ -37,6 +37,6 @@ export class CoverageReportGenerator {
     reporter.addAll(['html', 'lcov', 'text']);
     reporter.write(remappedCoverage, true);
 
-    logger.println(`✅ Coverage reports generated successfully in ${this.reportDir}`);
+    logger.println(`✅ Coverage reports generated successfully`);
   }
 }
