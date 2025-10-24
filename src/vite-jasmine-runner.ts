@@ -276,7 +276,11 @@ export class ViteJasmineRunner extends EventEmitter {
 
     const onBrowserClose = async () => {
       if (!testsCompleted) {
-        logger.println('\n\n🔄 Browser window closed prematurely');
+        setImmediate(() => {
+          logger.clearLine(); logger.printRaw('\n');
+          logger.clearLine(); logger.printRaw('\n');
+          logger.printlnRaw("🔄 Browser window closed prematurely")
+        });
       }
       await this.cleanup();
     };
@@ -285,7 +289,11 @@ export class ViteJasmineRunner extends EventEmitter {
 
     process.on('SIGINT', async () => {
       if (!testsCompleted) {
-        logger.println('\n\n🛑 Tests aborted by user (Ctrl+C)');
+        setImmediate(() => {
+          logger.clearLine(); logger.printRaw('\n');
+          logger.clearLine(); logger.printRaw('\n');
+          logger.printlnRaw("🛑 Tests aborted by user (Ctrl+C)");
+        });
       }
       await this.cleanup();
       process.exit(0);

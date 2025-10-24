@@ -144,7 +144,7 @@ export class Logger {
     return lines;
   }
 
-  private clearLine() {
+  clearLine() {
     process.stdout.write("\r\x1b[K");
   }
 
