@@ -163,10 +163,9 @@ export class Logger {
   // ─── Basic printing ───────────────────────────────────────
 
   print(msg: string) {
-    const lines = wrapLine(msg, MAX_WIDTH);
+    const lines = wrapLine(this.showPrompt ? this.prompt + msg : msg, MAX_WIDTH);
     for (const [i, line] of lines.entries()) {
       this.clearLine();
-      if (this.showPrompt) process.stdout.write(this.prompt);
       process.stdout.write(colors.bold + line + colors.reset);
       if (i < lines.length - 1) process.stdout.write("\n");
       this.addLine(line);
@@ -201,9 +200,8 @@ export class Logger {
 
   // ─── Error output (wrapped + colored) ─────────────────────
   error(msg: string) {
-    const lines = wrapLine(msg, MAX_WIDTH);
+    const lines = wrapLine(this.showPrompt ? this.errorPrompt + msg : msg, MAX_WIDTH);
     for (const [i, line] of lines.entries()) {
-      process.stdout.write(this.errorPrompt);
       process.stdout.write(colors.brightRed + line + colors.reset);
       if (i < lines.length - 1) process.stdout.write("\n");
       this.addLine(line);
