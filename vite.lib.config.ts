@@ -16,7 +16,7 @@ const EXTERNALS = [
   'vite', 'rollup', 'module-alias', 'playwright', 'playwright-core', 'esbuild', 
   'fdir', 'picomatch', 'jasmine-core', 'tinyglobby', 'path-scurry', 'lru-cache',
   'istanbul-lib-instrument', 'istanbul-lib-report', 'istanbul-lib-source-maps',
-  'istanbul-reports', 'istanbul-api', 'istanbul-lib-coverage', 'chokidar'
+  'istanbul-reports', 'istanbul-api', 'istanbul-lib-coverage', 'chokidar', 'jasmine'
 ];
 
 export default defineConfig({

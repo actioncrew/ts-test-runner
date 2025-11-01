@@ -88,7 +88,8 @@ export class BrowserManager {
       return true; // Success determined by WebSocket messages
     } catch (error) {
       if (interrupted) {
-        logger.println('\n\n🛑 Tests aborted by user (Ctrl+C)');
+        logger.printRaw('\n\n');
+        logger.println('🛑 Tests aborted by user (Ctrl+C)');
         await browser.close();
         return false;
       }

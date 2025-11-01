@@ -8,7 +8,8 @@
     "esModuleInterop": true,
     "moduleResolution": "bundler",
     "sourceMap": false,
-    "types": ["node", "jasmine"]
+    "types": ["node", "jasmine", "./src/types"],
+    "allowSyntheticDefaultImports": true
   },
   "include": ["**/*.ts"],
   "exclude": ["lib"]

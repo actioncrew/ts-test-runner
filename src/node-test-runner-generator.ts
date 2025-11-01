@@ -63,6 +63,25 @@ process.on('uncaughtException', error => {
   Object.assign(globalThis, jasmineRequire.interface(jasmine, env));
   globalThis.jasmine = jasmine;
   
+  process.on('exit', (code) => {
+    console.log(\`🚪 Process exiting with code: \${code}\`);
+    reporter.testsAborted('aborted');
+  });
+
+  function onExit(signal) {
+    console.log(\`\\n⚙️  Caught \${signal}. Cleaning up...\`);
+    // Do cleanup (close servers, save files, etc.)
+    process.exit(0);
+  }
+
+  process.on('message', (msg) => {
+    const failures = reporter.failureCount || 0;
+    process.exit(failures === 0 ? 0 : 1);
+  });
+
+  process.on('SIGINT', onExit);
+  process.on('SIGTERM', onExit);
+
   // Configure environment
   env.configure({
     random: ${this.config.jasmineConfig?.env?.random ?? false},
@@ -82,8 +101,7 @@ ${imports}
     setImmediate(() => process.exit(1));
   } finally {
     // get failure count from the reporter
-    const failures = reporter.failureCount || 0;;
-
+    const failures = reporter.failureCount || 0;
     setImmediate(() => process.exit(failures === 0 ? 0 : 1));
   }
 })();
